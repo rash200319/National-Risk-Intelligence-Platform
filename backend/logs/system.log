@@ -1,0 +1,18 @@
+2025-11-28 14:23:29,059 - INFO - Starting collection cycle.
+2025-11-28 14:23:36,114 - INFO - \u2705 Cycle Complete. Added 15 new unique signals.
+2025-11-28 14:28:36,414 - INFO - Starting collection cycle.
+2025-11-28 14:33:42,785 - INFO - Starting collection cycle.
+2025-11-28 14:38:48,711 - INFO - Starting collection cycle.
+2025-11-28 14:38:56,527 - INFO - \u2705 Cycle Complete. Added 4 new unique signals.
+2025-11-28 14:43:56,918 - INFO - Starting collection cycle.
+2025-11-28 14:49:01,926 - INFO - Starting collection cycle.
+2025-11-28 17:24:51,166 - INFO - \U0001f680 Starting collection cycle...
+2025-11-28 17:24:53,686 - ERROR - Error processing news: table risks has no column named category
+2025-11-28 17:24:55,454 - ERROR - Error processing reddit: table risks has no column named category
+2025-11-28 17:24:55,458 - INFO - \U0001f4a4 No new data found this cycle. Took 4.29s
+2025-11-28 17:35:55,391 - INFO - Collector service stopped by user
+2025-11-28 17:37:09,611 - INFO - \U0001f680 Starting collection cycle...
+2025-11-28 17:37:11,987 - ERROR - Error processing news: table risks has no column named category
+2025-11-28 17:37:13,955 - ERROR - Error processing reddit: table risks has no column named category
+2025-11-28 17:37:13,958 - INFO - \U0001f4a4 No new data found this cycle. Took 4.35s
+2025-11-28 17:44:24,943 - INFO - Collector service stopped by user
