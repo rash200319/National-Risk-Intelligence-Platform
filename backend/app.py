@@ -9,6 +9,14 @@ from datetime import datetime
 from database_manager import db
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
+from collections import Counter
+
+# --- TRY IMPORTING INTERACTIVE LIB ---
+try:
+    from streamlit_echarts import st_echarts
+    HAS_ECHARTS = True
+except ImportError:
+    HAS_ECHARTS = False
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -60,7 +68,6 @@ st.sidebar.title("🔧 Controls")
 refresh_rate = st.sidebar.slider("Refresh (seconds)", 10, 300, 30)
 auto_refresh = st.sidebar.checkbox("Auto-Refresh", value=True)
 
-# NEW: Industry Filter
 st.sidebar.markdown("---")
 st.sidebar.header("🏢 Industry Impact")
 selected_industry = st.sidebar.selectbox("Filter by Sector", ["All", "Energy & Fuel", "Logistics & Transport", "Finance & Economy", "Tourism", "Agriculture", "Public Safety"])
@@ -69,9 +76,7 @@ selected_industry = st.sidebar.selectbox("Filter by Sector", ["All", "Energy & F
 st.title("📡 MODEL-X: Risk Intelligence Platform")
 df, stats = get_data(limit=1000)
 
-# APPLY FILTER: Filter Data by Industry
 if selected_industry != "All" and not df.empty:
-    # Filter columns that contain the selected industry string
     df = df[df['category'].str.contains(selected_industry, case=False, na=False)]
 
 # Top Metrics
@@ -94,10 +99,9 @@ with tab1:
     else:
         st.info(f"No location-specific risks found for {selected_industry}.")
 
-# --- TAB 2: ANALYTICS (NOW WITH WORD CLOUD) ---
+# --- TAB 2: ANALYTICS ---
 with tab2:
     if not df.empty:
-        # Row 1: Activity Trend (Smart Bar/Line)
         st.subheader("Activity Trends")
         if 'published' in df.columns:
             df_chart = df.copy()
@@ -110,13 +114,11 @@ with tab2:
                 time_diff = max_date - min_date
                 
                 if time_diff.days < 1:
-                    # Hourly Bar Chart
                     group_col = 'hour_block'
                     df_chart[group_col] = df_chart['parsed_date'].dt.strftime('%I %p')
                     trend = df_chart.groupby(group_col).size().reset_index(name='count')
                     fig = px.bar(trend, x=group_col, y='count', title="Risk Volume (Hourly)", color_discrete_sequence=['#ff5722'])
                 else:
-                    # Daily Line Chart
                     group_col = 'date_only'
                     df_chart[group_col] = df_chart['parsed_date'].dt.date
                     trend = df_chart.groupby(group_col).size().reset_index(name='count')
@@ -126,37 +128,74 @@ with tab2:
 
         st.divider()
 
-        # Row 2: Word Cloud & Risk Levels
+        # HYBRID WORD CLOUD (Interactive if available, Static if not)
         c_left, c_right = st.columns([1, 1])
         
         with c_left:
             st.subheader("🔥 Trending Topics")
             if 'signal' in df.columns:
-                # Combine all text
                 text = " ".join(str(title) for title in df['signal'])
+                words = text.split()
+                # Clean up noise
+                stop_words = {'the', 'and', 'for', 'with', 'from', 'that', 'this', 'news', 'sri', 'lanka', 'breaking'}
+                words = [w for w in words if len(w) > 3 and w.lower() not in stop_words]
                 
-                if text.strip():
-                    try:
-                        # Generate Cloud
+                if words:
+                    # TRY INTERACTIVE
+                    if HAS_ECHARTS:
+                        word_counts = Counter(words)
+                        data = [{"name": w, "value": c} for w, c in word_counts.most_common(50)]
+                        wordcloud_option = {
+                            "backgroundColor": "#1E1E1E",  # <--- DARK BACKGROUND
+                        "series": [{
+                            "type": "wordCloud",
+                            "shape": "circle",
+                            "left": "center",
+                            "top": "center",
+                            "width": "100%",
+                            "height": "100%",
+                            "right": None,
+                            "bottom": None,
+                            "sizeRange": [15, 60],
+                            "rotationRange": [-45, 45],
+                            "rotationStep": 45,
+                            "gridSize": 8,
+                            "drawOutOfBound": False,
+                            "textStyle": {
+                                "fontFamily": "sans-serif",
+                                "fontWeight": "bold",
+                                # COLOR FUNCTION: Returns shades of White/Grey/Silver
+                                "color": "function () { return 'rgb(' + [Math.round(Math.random() * 55 + 200), Math.round(Math.random() * 55 + 200), Math.round(Math.random() * 55 + 200)].join(',') + ')'; }"
+                            },
+                            "emphasis": {
+                                "focus": "self",
+                                "textStyle": {
+                                    "shadowBlur": 10,
+                                    "shadowColor": "#FFFFFF"
+                                }
+                            },
+                            "data": data
+                        }]
+                        }
+                        st_echarts(wordcloud_option, height="400px")
+                    
+                    # FALLBACK TO STATIC (If install failed)
+                    else:
                         wordcloud = WordCloud(
-                            width=600, 
-                            height=400, 
-                            background_color='#1E1E1E', # Dark background to match theme
-                            colormap='Reds',
+                            width=600, height=400, 
+                            background_color='#1E1E1E', 
+                            colormap='Reds', # Red text on black
                             min_font_size=10
-                        ).generate(text)
+                        ).generate(" ".join(words))
                         
-                        # Display using explicit figure
                         fig = plt.figure(figsize=(6, 4), facecolor='#1E1E1E')
                         plt.imshow(wordcloud, interpolation='bilinear')
                         plt.axis("off")
                         plt.tight_layout(pad=0)
                         st.pyplot(fig, use_container_width=True)
-                        plt.close(fig) # Clean up memory
-                    except Exception as e:
-                        st.error(f"Could not generate word cloud: {e}")
+                        plt.close(fig)
                 else:
-                    st.info("Not enough text data for Word Cloud.")
+                    st.info("Not enough data for Word Cloud.")
         
         with c_right:
             st.subheader("Risk Severity")
@@ -168,17 +207,16 @@ with tab2:
 
         st.divider()
         
-        # Row 3: Industry Pie Chart
+        # Industry Pie Chart
         st.subheader("📊 Industry Impact")
         if 'category' in df.columns:
-            # Handle comma-separated tags (e.g., "Economy, Politics")
             cats = df['category'].str.split(',').explode().str.strip()
             cat_counts = cats.value_counts().reset_index()
             cat_counts.columns = ['Industry', 'Count']
             fig_pie = px.pie(cat_counts, values='Count', names='Industry', hole=0.4)
             st.plotly_chart(fig_pie, use_container_width=True)
 
-# --- TAB 3: FEED (WITH SENTIMENT TAGS) ---
+# --- TAB 3: FEED ---
 with tab3:
     if not df.empty:
         for _, row in df.head(20).iterrows():
