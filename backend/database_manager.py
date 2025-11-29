@@ -18,9 +18,11 @@ class DatabaseManager:
         self._init_tables()
     
     def _get_connection(self):
-        """Create a database connection."""
+        """Create a database connection with WAL mode enabled."""
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row  # Enable column access by name
+        conn.row_factory = sqlite3.Row
+        # ENABLE WAL MODE (Write-Ahead Logging) -> Allows reading while writing
+        conn.execute("PRAGMA journal_mode=WAL;") 
         return conn
     
     def _init_tables(self):
