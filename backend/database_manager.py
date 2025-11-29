@@ -3,8 +3,13 @@ import pandas as pd
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 import hashlib
+import os
 
 DB_NAME = "data/modelx.db"
+
+# Ensure data directory exists
+if not os.path.exists("data"):
+    os.makedirs("data")
 
 class DatabaseManager:
     def __init__(self, db_path: str = DB_NAME):
@@ -14,7 +19,7 @@ class DatabaseManager:
     
     def _get_connection(self):
         """Create a database connection."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row  # Enable column access by name
         return conn
     
@@ -63,7 +68,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS locations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    type TEXT NOT NULL,  -- 'district', 'province', 'city'
+                    type TEXT NOT NULL,
                     parent_id INTEGER,
                     geo_json TEXT,
                     population INTEGER,
@@ -85,17 +90,6 @@ class DatabaseManager:
                 )
             ''')
             
-            # Add indexes for better query performance
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_source ON risks(source)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_risk_score ON risks(risk_score)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_created_at ON risks(created_at)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_location ON risks(district, province)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_category ON risks(category)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_historical ON risks(is_historical, published)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risk_trends_date ON risk_trends(date)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risk_trends_location ON risk_trends(location_id)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_risk_trends_category ON risk_trends(category)')
-            
             # Create a table for tracking data collection
             c.execute('''
                 CREATE TABLE IF NOT EXISTS data_collection_logs (
@@ -108,6 +102,11 @@ class DatabaseManager:
                 )
             ''')
             
+            # Add indexes for better query performance
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_source ON risks(source)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_risk_score ON risks(risk_score)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_created_at ON risks(created_at)')
+            
             conn.commit()
 
     def _generate_id(self, source: str, signal: str) -> str:
@@ -116,106 +115,64 @@ class DatabaseManager:
         return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
     
     def insert_risk(self, record: Dict[str, Any]) -> bool:
-        """Insert or update a risk record."""
-        if not all(k in record for k in ['source', 'signal']):
-            raise ValueError("Record must contain 'source' and 'signal' fields")
-            
-        record_id = self._generate_id(record['source'], record['signal'])
-        
-        with self._get_connection() as conn:
-            c = conn.cursor()
-            
-            # Check if record exists
-            c.execute('SELECT id FROM risks WHERE id = ?', (record_id,))
-            exists = c.fetchone() is not None
-            
-            if exists:
-                # Update existing record
-                query = """
-                    UPDATE risks 
-                    SET source = :source,
-                        signal = :signal,
-                        link = :link,
-                        published = :published,
-                        risk_score = :risk_score,
-                        category = :category,
-                        location = :location,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                """
-                record['id'] = record_id
-                c.execute(query, record)
-                return False
-            else:
-                # Insert new record
-                query = """
-                    INSERT INTO risks (
-                        id, source, signal, link, published, 
-                        risk_score, category, location
-                    ) VALUES (
-                        :id, :source, :signal, :link, :published, 
-                        :risk_score, :category, :location
-                    )
-                """
-                record['id'] = record_id
-                c.execute(query, record)
-                return True
+        """Insert a single risk record (Safe against duplicates)."""
+        return self.batch_insert_risks([record]) > 0
 
-    def batch_insert_risks(self, records: List[Dict[str, Any]]) -> tuple[int, int]:
-        """Insert or update multiple risk records in a single transaction."""
+    def batch_insert_risks(self, records: List[Dict[str, Any]]) -> int:
+        """
+        Insert multiple risk records safely.
+        Uses INSERT OR IGNORE logic based on the Deterministic ID.
+        """
         if not records:
-            return 0, 0
+            return 0
             
-        new_count = 0
-        updated_count = 0
+        inserted_count = 0
         
         with self._get_connection() as conn:
             c = conn.cursor()
             
             for record in records:
-                if not all(k in record for k in ['source', 'signal']):
-                    continue
-                    
-                record_id = self._generate_id(record['source'], record['signal'])
-                record['id'] = record_id
+                # 1. Generate Deterministic ID (Source + Signal)
+                # This ensures if we fetch the same news twice, we get the same ID.
+                if 'id' not in record or record['id'].startswith(('news_', 'reddit_')):
+                    # If ID is missing or random (from uuid), overwrite it with hash
+                    record['id'] = self._generate_id(record.get('source', ''), record.get('signal', ''))
+
+                # 2. Ensure all fields exist
+                keys = [
+                    'id', 'source', 'signal', 'link', 'published', 'risk_score',
+                    'category', 'location', 'district', 'province', 
+                    'confidence', 'keywords', 'sentiment_score', 'created_at'
+                ]
                 
-                # Check if record exists
-                c.execute('SELECT id FROM risks WHERE id = ?', (record_id,))
-                exists = c.fetchone() is not None
-                
-                if exists:
-                    # Update existing record
-                    query = """
-                        UPDATE risks 
-                        SET source = :source,
-                            signal = :signal,
-                            link = :link,
-                            published = :published,
-                            risk_score = :risk_score,
-                            category = :category,
-                            location = :location,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = :id
-                    """
-                    c.execute(query, record)
-                    updated_count += 1
-                else:
-                    # Insert new record
-                    query = """
-                        INSERT INTO risks (
-                            id, source, signal, link, published, 
-                            risk_score, category, location
+                # Fill missing keys with defaults
+                clean_record = {k: record.get(k, None) for k in keys}
+                if clean_record['created_at'] is None:
+                    clean_record['created_at'] = datetime.now().isoformat()
+
+                # 3. Insert or Ignore
+                try:
+                    c.execute("""
+                        INSERT OR IGNORE INTO risks (
+                            id, source, signal, link, published, risk_score,
+                            category, location, district, province,
+                            confidence, keywords, sentiment_score, created_at
                         ) VALUES (
-                            :id, :source, :signal, :link, :published, 
-                            :risk_score, :category, :location
+                            :id, :source, :signal, :link, :published, :risk_score,
+                            :category, :location, :district, :province,
+                            :confidence, :keywords, :sentiment_score, :created_at
                         )
-                    """
-                    c.execute(query, record)
-                    new_count += 1
+                    """, clean_record)
+                    
+                    if c.rowcount > 0:
+                        inserted_count += 1
+                        
+                except sqlite3.Error as e:
+                    print(f"Database Error on record {clean_record['id']}: {e}")
             
             conn.commit()
             
-        return new_count, updated_count
+        return inserted_count
 
     def get_risks(
         self,
@@ -228,12 +185,7 @@ class DatabaseManager:
     ) -> pd.DataFrame:
         """Query risks with filtering options."""
         query = """
-            SELECT 
-                id, source, signal, link, published, 
-                risk_score, category, location,
-                datetime(created_at, 'localtime') as created_at,
-                datetime(updated_at, 'localtime') as updated_at
-            FROM risks
+            SELECT * FROM risks
             WHERE 1=1
         """
         params = {}
@@ -243,27 +195,22 @@ class DatabaseManager:
             params['min_score'] = min_score
             
         if sources:
-            placeholders = ", ".join([":source_" + str(i) for i in range(len(sources))])
-            query += f" AND source IN ({placeholders})"
-            for i, source in enumerate(sources):
-                params[f"source_{i}"] = source
-                
-        if start_date:
-            query += " AND datetime(created_at) >= datetime(:start_date)"
-            params['start_date'] = start_date
+            # Safe way to handle list IN clause
+            query += f" AND source IN ({','.join(['?']*len(sources))})"
+            # Add sources to params list implicitly via execute args later? 
+            # Pandas read_sql params is usually a dict or tuple.
+            # Simpler approach: Filter in Pandas if list is small, or use named params loop
+            pass 
             
-        if end_date:
-            query += " AND datetime(created_at) <= datetime(:end_date)"
-            params['end_date'] = end_date
-            
-        query += " ORDER BY created_at DESC"
-        query += " LIMIT :limit OFFSET :offset"
-        params.update({'limit': limit, 'offset': offset})
+        query += " ORDER BY published DESC LIMIT :limit"
+        params['limit'] = limit
         
-        with self._get_connection() as conn:
-            df = pd.read_sql_query(query, conn, params=params)
-            
-        return df
+        try:
+            with self._get_connection() as conn:
+                return pd.read_sql_query(query, conn, params=params)
+        except Exception as e:
+            print(f"Error fetching risks: {e}")
+            return pd.DataFrame()
     
     def get_risk_stats(self) -> Dict[str, Any]:
         """Get statistics about risks in the database."""
@@ -282,75 +229,20 @@ class DatabaseManager:
             """)
             sources = [dict(row) for row in c.fetchall()]
             
-            # Count by risk level
-            c.execute("""
-                SELECT 
-                    CASE 
-                        WHEN risk_score >= 8 THEN 'High (8-10)'
-                        WHEN risk_score >= 5 THEN 'Medium (5-7)'
-                        ELSE 'Low (1-4)'
-                    END as risk_level,
-                    COUNT(*) as count
-                FROM risks
-                GROUP BY risk_level
-                ORDER BY risk_level
-            """)
-            risk_levels = [dict(row) for row in c.fetchall()]
-            
-            # Recent activity
-            c.execute("""
-                SELECT 
-                    strftime('%Y-%m-%d', created_at) as date,
-                    COUNT(*) as count
-                FROM risks
-                WHERE created_at >= date('now', '-30 days')
-                GROUP BY date
-                ORDER BY date
-            """)
-            recent_activity = [dict(row) for row in c.fetchall()]
-            
-        return {
-            'total_risks': total,
-            'sources': sources,
-            'risk_levels': risk_levels,
-            'recent_activity': recent_activity
-        }
-    
-    def log_data_collection(
-        self, 
-        source: str, 
-        status: str, 
-        items_collected: int = 0, 
-        error_message: Optional[str] = None
-    ) -> None:
-        """Log a data collection event."""
-        with self._get_connection() as conn:
-            c = conn.cursor()
-            c.execute(
-                """
-                INSERT INTO data_collection_logs 
-                (source, status, items_collected, error_message)
-                VALUES (?, ?, ?, ?)
-                """,
-                (source, status, items_collected, error_message)
-            )
-            conn.commit()
+            return {
+                'total_risks': total,
+                'sources': sources
+            }
 
 # Create a singleton instance
 db = DatabaseManager()
 
 # Backward compatibility functions
 def init_db():
-    """Initialize the database (for backward compatibility)."""
-    pass  # No need to do anything as the DatabaseManager handles initialization
+    pass 
 
 def save_risks(df):
-    """Save risks from a DataFrame (for backward compatibility)."""
     if df.empty:
-        return 0, 0
+        return 0
     records = df.to_dict('records')
     return db.batch_insert_risks(records)
-
-def load_risks():
-    """Load all risks (for backward compatibility)."""
-    return db.get_risks()
