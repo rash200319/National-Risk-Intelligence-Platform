@@ -1,0 +1,11 @@
+process
+---
+1. create backend file
+2. create the virtual environment.(cd backend)
+    - python -m venv venv
+    - venv\Scripts\activate
+3. install packages
+    - pip install requests feedparser newspaper3k praw pandas pytrends
+4. run the scripts
+5. pip install streamlit
+6. streamlit run app.py

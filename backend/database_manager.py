@@ -1,0 +1,261 @@
+import sqlite3
+import pandas as pd
+from datetime import datetime, timezone
+from typing import List, Dict, Optional, Any
+import hashlib
+import os
+
+DB_NAME = "data/modelx.db"
+
+# Ensure data directory exists
+if not os.path.exists("data"):
+    os.makedirs("data")
+
+class DatabaseManager:
+    def __init__(self, db_path: str = DB_NAME):
+        """Initialize database connection and create tables if they don't exist."""
+        self.db_path = db_path
+        self._init_tables()
+    
+    def _get_connection(self):
+        """Create a database connection with WAL mode enabled."""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        # ENABLE WAL MODE (Write-Ahead Logging) -> Allows reading while writing
+        conn.execute("PRAGMA journal_mode=WAL;") 
+        return conn
+    
+    def _init_tables(self):
+        """Initialize database tables."""
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            
+            # Risks table with enhanced schema (Added business_impact)
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS risks (
+                    id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    link TEXT,
+                    published TEXT,
+                    risk_score INTEGER,
+                    category TEXT,
+                    business_impact TEXT,  -- <--- NEW COLUMN
+                    location TEXT,
+                    district TEXT,
+                    province TEXT,
+                    confidence FLOAT DEFAULT 1.0,
+                    keywords TEXT,
+                    sentiment_score FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_historical BOOLEAN DEFAULT 0,
+                    data_source TEXT,
+                    raw_data TEXT
+                )
+            ''')
+            
+            # Historical data collection status
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS historical_collection (
+                    source TEXT PRIMARY KEY,
+                    last_collected_date TEXT,
+                    status TEXT,
+                    total_collected INTEGER DEFAULT 0,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Location reference data for Sri Lanka
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS locations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    parent_id INTEGER,
+                    geo_json TEXT,
+                    population INTEGER,
+                    risk_profile TEXT,
+                    FOREIGN KEY (parent_id) REFERENCES locations (id)
+                )
+            ''')
+            
+            # Time series data for trend analysis
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS risk_trends (
+                    date TEXT,
+                    location_id INTEGER,
+                    category TEXT,
+                    avg_risk_score FLOAT,
+                    event_count INTEGER,
+                    PRIMARY KEY (date, location_id, category),
+                    FOREIGN KEY (location_id) REFERENCES locations (id)
+                )
+            ''')
+            
+            # Create a table for tracking data collection
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS data_collection_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    items_collected INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Add indexes for better query performance
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_source ON risks(source)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_risk_score ON risks(risk_score)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_created_at ON risks(created_at)')
+            
+            conn.commit()
+
+    def _generate_id(self, source: str, signal: str) -> str:
+        """Generate a unique ID for a record."""
+        unique_str = f"{source}_{signal}"
+        return hashlib.md5(unique_str.encode('utf-8')).hexdigest()
+    
+    def insert_risk(self, record: Dict[str, Any]) -> bool:
+        """Insert a single risk record (Safe against duplicates)."""
+        return self.batch_insert_risks([record]) > 0
+
+    def batch_insert_risks(self, records: List[Dict[str, Any]]) -> int:
+        """
+        Insert multiple risk records safely.
+        Uses INSERT OR IGNORE logic based on the Deterministic ID.
+        """
+        if not records:
+            return 0
+            
+        inserted_count = 0
+        
+        with self._get_connection() as conn:
+            c = conn.cursor()
+            
+            for record in records:
+                # 1. Generate Deterministic ID (Source + Signal)
+                if 'id' not in record or record['id'].startswith(('news_', 'reddit_')):
+                    record['id'] = self._generate_id(record.get('source', ''), record.get('signal', ''))
+
+                # 2. Ensure all fields exist
+                keys = [
+                    'id', 'source', 'signal', 'link', 'published', 'risk_score',
+                    'category', 'business_impact', 'location', 'district', 'province', 
+                    'confidence', 'keywords', 'sentiment_score', 'created_at'
+                ]
+                
+                # Fill missing keys with defaults
+                clean_record = {k: record.get(k, None) for k in keys}
+                if clean_record['created_at'] is None:
+                    clean_record['created_at'] = datetime.now().isoformat()
+
+                # 3. Insert or Ignore
+                try:
+                    c.execute("""
+                        INSERT OR IGNORE INTO risks (
+                            id, source, signal, link, published, risk_score,
+                            category, business_impact, location, district, province,
+                            confidence, keywords, sentiment_score, created_at
+                        ) VALUES (
+                            :id, :source, :signal, :link, :published, :risk_score,
+                            :category, :business_impact, :location, :district, :province,
+                            :confidence, :keywords, :sentiment_score, :created_at
+                        )
+                    """, clean_record)
+                    
+                    if c.rowcount > 0:
+                        inserted_count += 1
+                        
+                except sqlite3.Error as e:
+                    print(f"Database Error on record {clean_record['id']}: {e}")
+            
+            conn.commit()
+            
+        return inserted_count
+
+    def get_risks(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        min_score: Optional[int] = None,
+        sources: Optional[List[str]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> pd.DataFrame:
+        """Query risks with filtering options."""
+        query = """
+            SELECT * FROM risks
+            WHERE 1=1
+        """
+        params = {}
+        
+        if min_score is not None:
+            query += " AND risk_score >= :min_score"
+            params['min_score'] = min_score
+            
+        if sources:
+            # Safe way to handle list IN clause
+            # Since SQLite python driver doesn't support list params easily, we construct the placeholders
+            placeholders = ','.join(['?'] * len(sources))
+            query += f" AND source IN ({placeholders})"
+            # We must handle the execution carefully with mixed params (named + positional is tricky)
+            # Strategy: Convert everything to positional for this specific query if source filter is active
+            # For simplicity in this project context, we will pass parameters differently or assume simple usage.
+            # Fix: We will rely on pandas read_sql params injection which usually handles dicts well, 
+            # but for IN clauses it's safer to interpolate strictly validated strings or use a loop.
+            # PROTOTYPE FIX: Ignore source filter in SQL, filter in Pandas (Safer for prototype)
+            pass 
+            
+        query += " ORDER BY published DESC LIMIT :limit"
+        params['limit'] = limit
+        
+        try:
+            with self._get_connection() as conn:
+                df = pd.read_sql_query(query, conn, params=params)
+                
+                # Filter by source in Python (easier than dynamic SQL for lists in sqlite3)
+                if sources and not df.empty:
+                    df = df[df['source'].isin(sources)]
+                    
+                return df
+        except Exception as e:
+            print(f"Error fetching risks: {e}")
+            return pd.DataFrame()
+    
+    def get_risk_stats(self) -> Dict[str, Any]:
+        """Get statistics about risks in the database."""
+        with self._get_connection() as conn:
+            # Total count
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) as total FROM risks")
+            result = c.fetchone()
+            total = result['total'] if result else 0
+            
+            # Count by source
+            c.execute("""
+                SELECT source, COUNT(*) as count 
+                FROM risks 
+                GROUP BY source 
+                ORDER BY count DESC
+            """)
+            sources = [dict(row) for row in c.fetchall()]
+            
+            return {
+                'total_risks': total,
+                'sources': sources
+            }
+
+# Create a singleton instance
+db = DatabaseManager()
+
+# Backward compatibility functions
+def init_db():
+    pass 
+
+def save_risks(df):
+    if df.empty:
+        return 0
+    records = df.to_dict('records')
+    return db.batch_insert_risks(records)
