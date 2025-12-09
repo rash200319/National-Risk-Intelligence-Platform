@@ -50,7 +50,9 @@ To start the platform, run the following command in your terminal:
 
 ```bash
 streamlit run app.py
+```
 or
+```bash
 python -m streamlit run app.py
 ```
 
