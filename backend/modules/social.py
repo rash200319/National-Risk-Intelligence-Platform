@@ -11,7 +11,7 @@ from dateutil import parser as date_parser
 BUSINESS_KEYWORDS = [
     'business', 'economy', 'finance', 'stock', 'market', 'investment',
     'trade', 'company', 'corporate', 'bank', 'industry', 'profit', 'loss',
-    'ceylon', 'export', 'import', 'policy', 'government','power', 'disaster','flood','fuel','tourism'
+    'ceylon', 'export', 'import', 'policy', 'government','power', 'disaster','flood','fuel','tourism','protest'
 ]
 
 def filter_business_posts(posts: pd.DataFrame, keywords: list) -> pd.DataFrame:
