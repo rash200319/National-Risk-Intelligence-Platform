@@ -7,6 +7,29 @@ from datetime import datetime, timezone
 from io import BytesIO
 from dateutil import parser as date_parser
 
+
+BUSINESS_KEYWORDS = [
+    'business', 'economy', 'finance', 'stock', 'market', 'investment',
+    'trade', 'company', 'corporate', 'bank', 'industry', 'profit', 'loss',
+    'ceylon', 'export', 'import', 'policy', 'government','power', 'disaster','flood','fuel','tourism'
+]
+
+def filter_business_posts(posts: pd.DataFrame, keywords: list) -> pd.DataFrame:
+    if posts.empty:
+        return posts
+    mask = (
+        posts['title'].str.contains('|'.join(keywords), case=False, na=False) |
+        posts['raw_data'].str.contains('|'.join(keywords), case=False, na=False)
+    )
+    return posts[mask]
+
+def filter_recent(posts: pd.DataFrame, days: int = 7) -> pd.DataFrame:
+    if posts.empty:
+        return posts
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    posts['published'] = pd.to_datetime(posts['published'])
+    return posts[posts['published'] >= cutoff]
+    
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -81,7 +104,8 @@ def get_reddit_rss(limit: int = 50) -> pd.DataFrame:
     df = pd.DataFrame(all_posts)
     if not df.empty:
         df.drop_duplicates(subset=['link'], inplace=True)
-    
+        df = filter_business_posts(df, BUSINESS_KEYWORDS)
+        df = filter_recent(df, days=7)
     return df
 
 # Placeholder to prevent ImportErrors in collector.py
