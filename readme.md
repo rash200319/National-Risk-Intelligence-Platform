@@ -50,6 +50,8 @@ To start the platform, run the following command in your terminal:
 
 ```bash
 streamlit run app.py
+or
+python -m streamlit run app.py
 ```
 
 The dashboard will launch in your default web browser at `http://localhost:8501`. The data collector will start automatically in the background.
