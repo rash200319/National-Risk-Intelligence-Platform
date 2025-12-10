@@ -4,9 +4,21 @@ import threading
 import uuid
 import logging
 from datetime import datetime
-from textblob import TextBlob  # <--- AI Sentiment
 import pandas as pd
 from database_manager import db
+
+# --- AI UPGRADE: FinBERT ---
+# We replace TextBlob with a Transformer model specialized for financial/economic sentiment.
+from transformers import pipeline
+
+print("⏳ Loading AI Model (FinBERT)... This may take a moment on first run.")
+try:
+    # ProsusAI/finbert is the industry standard for financial sentiment
+    sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+    print("✅ AI Model Loaded Successfully")
+except Exception as e:
+    print(f"⚠️ Warning: Could not load FinBERT. Ensure 'transformers' and 'torch' are installed. Error: {e}")
+    sentiment_pipeline = None
 
 # Import Feed Fetchers
 from modules.news import fetch_news
@@ -18,10 +30,8 @@ FETCH_LIMIT = 20        # Items per source
 
 # --- INDUSTRY KEYWORDS (BUSINESS CONTEXT) ---
 INDUSTRIES = {
-    # 1. Separated Energy
-    "Energy": ["power", "electricity", "energy", "grid", "ceb", "solar", "renewable"],
-    # 2. Separated Fuel
-    "Fuel": ["fuel", "gas", "petrol", "diesel", "cpc", "kerosene", "oil"],
+    "Energy": [ "power outage","power cut","power failure", "power crisis","power shortage","electricity", "energy", "grid", "ceb", "solar", "renewable"],
+    "Fuel": ["fuel price","fuel hike","fuel shortage","diesel queue", "gas", "petrol", "diesel", "cpc", "kerosene", "oil"],
     "Logistics & Transport": ["road", "traffic", "train", "bus", "port", "shipping", "airline", "flight", "transport"],
     "Finance & Economy": ["rupee", "dollar", "bank", "tax", "inflation", "stock", "market", "imf", "debt", "economy"],
     "Tourism": ["tourist", "hotel", "visa", "airport", "travel", "resort", "booking"],
@@ -29,8 +39,7 @@ INDUSTRIES = {
     "Public Safety": ["protest", "strike", "curfew", "police", "attack", "violence", "disaster", "flood"]
 }
 
-# --- BUSINESS IMPACT LOGIC (The "Why it matters" layer) ---
-# Maps industry tags to actionable business consequences
+# --- BUSINESS IMPACT LOGIC ---
 IMPACT_RULES = {
     "Fuel": "⚠️ Direct impact on transport logistics and diesel generator costs.",
     "Energy": "⚡ Risk of production downtime due to power instability or tariff hikes.",
@@ -47,16 +56,41 @@ class RiskCollector:
         self.is_running = False
         self.thread = None
 
+    def _get_ai_sentiment(self, text):
+        """
+        Uses FinBERT to get a professional sentiment score (-1 to 1).
+        Falls back to 0.0 if model fails.
+        """
+        if not sentiment_pipeline or not text:
+            return 0.0
+        
+        try:
+            # Truncate to 512 tokens to fit BERT limits
+            results = sentiment_pipeline(text[:512]) 
+            label = results[0]['label']
+            score = results[0]['score'] # Confidence (0.0 - 1.0)
+
+            # Map FinBERT labels to our -1 to 1 scale
+            if label == 'positive':
+                return score       # e.g., 0.95
+            elif label == 'negative':
+                return -score      # e.g., -0.95
+            else: # neutral
+                return 0.0
+        except Exception:
+            return 0.0
+
     def _analyze_context(self, text):
         """
-        Professional Analysis: Multi-Factor Weighted Risk Engine
+        Professional Analysis: Hybrid Engine (Transformer Model + Rule-Based Logic)
         Returns: (Risk Score [1-10], Sentiment [-1 to 1], Industry Tags)
         """
         txt = text.lower()
-        blob = TextBlob(text)
-        sentiment = blob.sentiment.polarity  # -1.0 to 1.0
+        
+        # --- 1. AI SENTIMENT ANALYSIS (Replaces TextBlob) ---
+        sentiment = self._get_ai_sentiment(text)
 
-        # --- 1. ADVANCED SENTIMENT CATEGORIES (Emotional Context) ---
+        # --- 2. ADVANCED SENTIMENT CATEGORIES (Emotional Context) ---
         category_score = 0
         SENTIMENT_WEIGHTS = {
             "fear": (["bomb", "terror", "attack", "dead", "kill", "explosion", "panic"], 3),
@@ -70,10 +104,9 @@ class RiskCollector:
             if any(w in txt for w in words):
                 category_score += weight
 
-        # Clamp category score between 0 and 10
         category_score = max(0, min(category_score, 10))
 
-        # --- 2. TOPIC RISK MULTIPLIERS (Sector Relevance) ---
+        # --- 3. TOPIC RISK MULTIPLIERS (Sector Relevance) ---
         topic_score = 0
         TOPIC_MULTIPLIERS = {
             "political": ["government", "president", "minister", "election", "parliament"],
@@ -88,17 +121,18 @@ class RiskCollector:
             if any(w in txt for w in words):
                 topic_score += 2
         
-        # --- 3. INTENSITY MODIFIER ---
+        # --- 4. INTENSITY MODIFIER ---
         intensity = 0
         if any(w in txt for w in ["massive", "severe", "critical", "dangerous", "deadly"]):
             intensity += 2
         if any(w in txt for w in ["minor", "small", "controlled", "handled", "fake"]):
             intensity -= 2
 
-        # --- 4. SENTIMENT RISK ---
+        # --- 5. RISK CALCULATION ---
+        # Formula: If sentiment is Negative (-1), Risk increases significantly.
+        # sentiment_risk becomes 10 when sentiment is -1.
         sentiment_risk = (1 - sentiment) * 5
 
-        # --- 5. FINAL FUSION FORMULA ---
         final_score = (
             (0.40 * category_score) + 
             (0.30 * sentiment_risk) + 
@@ -120,7 +154,7 @@ class RiskCollector:
         return final_score, sentiment, ", ".join(detected_industries)
     
     def fetch_realtime(self):
-        print("📡 Running Smart Collection Cycle...")
+        print("📡 Running Smart Collection Cycle (Powered by FinBERT)...")
         
         # 1. NEWS COLLECTION
         try:
@@ -128,15 +162,13 @@ class RiskCollector:
             if news_items:
                 risks = []
                 for item in news_items:
-                    # Combine title and content for better AI context
                     full_text = f"{item.get('title', '')} {item.get('content', '')}"
                     
                     # --- AI PROCESSING ---
                     score, sentiment, industries = self._analyze_context(full_text)
                     
-                    # --- BUSINESS IMPACT GENERATION ---
+                    # --- BUSINESS IMPACT ---
                     impact_msg = "Monitor situation."
-                    # Split tags (e.g. "Energy, Fuel") and find the first matching rule
                     for tag in industries.split(", "):
                         if tag in IMPACT_RULES:
                             impact_msg = IMPACT_RULES[tag]
@@ -150,7 +182,7 @@ class RiskCollector:
                         "published": datetime.now().isoformat(),
                         "risk_score": score,
                         "category": industries,
-                        "business_impact": impact_msg,  # <--- NEW FIELD
+                        "business_impact": impact_msg,
                         "location": "Sri Lanka",
                         "district": "",
                         "province": "",
@@ -160,7 +192,7 @@ class RiskCollector:
                         "created_at": datetime.now().isoformat()
                     })
                 db.batch_insert_risks(risks)
-                print(f"   -> Processed {len(risks)} News items with Business Impact.")
+                print(f"   -> Processed {len(risks)} News items.")
         except Exception as e:
             print(f"❌ News Error: {e}")
 
@@ -173,7 +205,6 @@ class RiskCollector:
                     full_text = f"{row.get('title', '')}"
                     score, sentiment, industries = self._analyze_context(full_text)
 
-                    # --- BUSINESS IMPACT GENERATION ---
                     impact_msg = "Monitor public sentiment."
                     for tag in industries.split(", "):
                         if tag in IMPACT_RULES:
@@ -188,7 +219,7 @@ class RiskCollector:
                         "published": datetime.now().isoformat(),
                         "risk_score": score,
                         "category": industries,
-                        "business_impact": impact_msg,  # <--- NEW FIELD
+                        "business_impact": impact_msg,
                         "location": "Sri Lanka",
                         "district": "",
                         "province": "",
@@ -198,7 +229,7 @@ class RiskCollector:
                         "created_at": datetime.now().isoformat()
                     })
                 db.batch_insert_risks(s_risks)
-                print(f"   -> Processed {len(s_risks)} Reddit items with Business Impact.")
+                print(f"   -> Processed {len(s_risks)} Reddit items.")
         except Exception as e:
             print(f"❌ Reddit Error: {e}")
 
