@@ -16,4 +16,5 @@ schedule
 pydeck
 plotly
 numpy
-textblob
+transformers
+torch
