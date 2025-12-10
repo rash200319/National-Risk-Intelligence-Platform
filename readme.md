@@ -10,7 +10,7 @@ The system is built as a multi-threaded ETL (Extract, Transform, Load) pipeline 
 - **Real-Time Data Aggregation**: Automatically fetches breaking news and updates from over 16 Sri Lankan news RSS feeds and Reddit discussions every 5 minutes.
 - **Deduplication Engine**: Implements a deterministic hashing algorithm to generate unique identifiers for every news item, preventing duplicate entries in the database.
 - **AI-Powered Analysis**:
-  - **Sentiment Scoring**: Uses NLP (TextBlob) to analyze the tone of each article (Positive/Negative) to assist in risk scoring.
+  - **Sentiment Scoring (FinBERT-Powered)**: Uses ProsusAI/FinBERT, a financial-domain BERT model, to evaluate business sentiment (Positive/Negative/Neutral) with high accuracy in economic contexts.
   - **Industry Tagging**: Automatically categorizes risks into relevant sectors such as Energy, Finance, Logistics, and Agriculture based on keyword analysis.
   - **Geospatial Intelligence**: Maps risk events to specific locations across Sri Lanka to provide geographical context.
 - **Business Intelligence Dashboard**:
@@ -24,7 +24,7 @@ The system is built as a multi-threaded ETL (Extract, Transform, Load) pipeline 
 The system follows a modular architecture comprising a backend collector, a persistent database, and a frontend visualization layer.
 
 - **Collector Module**: A background thread that polls RSS feeds and APIs. It handles connection errors gracefully and parses unstructured text into structured records.
-- **Processing Layer**: Cleans text, generates hash IDs for deduplication, calculates sentiment scores, and assigns risk levels (1-10) based on keyword severity.
+- **Processing Layer**:FinBERT sentiment classification,Risk computation (sentiment + keyword severity + entity importance).
 - **Storage Layer**: Uses SQLite with Write-Ahead Logging (WAL) enabled to support concurrent reading and writing, ensuring the dashboard remains responsive while data is being collected.
 - **Presentation Layer**: A Streamlit-based web interface that provides interactive charts (Plotly), maps, and searchable data tables.
 
@@ -72,7 +72,7 @@ The dashboard will launch in your default web browser at `http://localhost:8501`
 - Streamlit: Frontend framework.
 - Pandas: Data manipulation and analysis.
 - Plotly: Interactive charting.
-- TextBlob: Sentiment analysis.
+- Transformers (FinBERT) – Sentiment
 - WordCloud / Matplotlib: Keyword visualization.
 - Feedparser: RSS feed aggregation.
 - SQLite3: Database management.
