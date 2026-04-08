@@ -15,7 +15,7 @@ def render_health_dashboard():
     """Render the health monitoring dashboard."""
     
     st.set_page_config(page_title="Health Monitor", layout="wide")
-    st.markdown("# 📊 Data Collection Health Monitor")
+    st.markdown("# Data Collection Health Monitor")
     
     # Get health data
     dashboard_data = health_monitor.get_dashboard_data()
@@ -27,9 +27,9 @@ def render_health_dashboard():
     with col1:
         health_pct = float(overall.get('health_percentage', '0').rstrip('%'))
         if overall.get('overall_status') == 'no_data':
-            color = "⚪"
+            color = "No Data"
         else:
-            color = "🟢" if health_pct >= 80 else "🟡" if health_pct >= 60 else "🔴"
+            color = "Healthy" if health_pct >= 80 else "Degraded" if health_pct >= 60 else "Unhealthy"
         st.metric(
             "System Health",
             f"{color} {overall.get('health_percentage', 'N/A')}",
@@ -63,7 +63,7 @@ def render_health_dashboard():
     st.divider()
     
     # Tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Source Status", "📊 Graphs", "📋 Logs", "⚙️ Details"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Source Status", "Graphs", "Logs", "Details"])
     
     with tab1:
         render_source_status(dashboard_data)
@@ -106,9 +106,9 @@ def render_source_status(dashboard_data):
     
     df_health = pd.DataFrame(health_data)
     badge_map = {
-        'HEALTHY': '🟢 Healthy',
-        'UNHEALTHY': '🔴 Unhealthy',
-        'NO_DATA': '⚪ No Data'
+        'HEALTHY': 'Healthy',
+        'UNHEALTHY': 'Unhealthy',
+        'NO_DATA': 'No Data'
     }
     df_health['Status Badge'] = df_health['Status'].map(lambda value: badge_map.get(value, value))
     display_columns = [
@@ -130,7 +130,7 @@ def render_source_status(dashboard_data):
     st.subheader("Detailed Source Information")
     
     for source_name, stats in sources_health.items():
-        with st.expander(f"📌 {source_name} - {stats['status'].upper()}"):
+        with st.expander(f"{source_name} - {stats['status'].upper()}"):
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -246,7 +246,7 @@ def render_logs(dashboard_data):
     
     # Display logs in reverse order (newest first)
     for log in reversed(logs[-100:]):
-        status_icon = "✅" if log['success'] else "❌"
+        status_label = "Success" if log['success'] else "Failed"
         timestamp = log['timestamp']
         source = log['source']
         items = log['items']
@@ -256,7 +256,7 @@ def render_logs(dashboard_data):
             col1, col2, col3, col4 = st.columns([1, 2, 2, 2])
             
             with col1:
-                st.write(status_icon)
+                st.write(status_label)
             
             with col2:
                 st.write(f"**{source}**")
@@ -268,7 +268,7 @@ def render_logs(dashboard_data):
                 st.caption(timestamp)
             
             if error:
-                st.caption(f"⚠️ {error}")
+                st.caption(f"Warning: {error}")
         
         st.divider()
 
@@ -290,7 +290,7 @@ def render_details(dashboard_data):
         # Export as JSON
         report_json = health_monitor.export_health_report()
         st.download_button(
-            label="📥 Download Health Report (JSON)",
+            label="Download Health Report (JSON)",
             data=report_json,
             file_name=f"health_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
             mime="application/json"
@@ -313,7 +313,7 @@ def render_details(dashboard_data):
             
             csv_data = df_export.to_csv(index=False)
             st.download_button(
-                label="📥 Download Sources Status (CSV)",
+                label="Download Sources Status (CSV)",
                 data=csv_data,
                 file_name=f"sources_status_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv"

@@ -197,10 +197,10 @@ def extract_trending_keywords(df, limit=10):
     return common_words[:limit]
 
 # --- SIDEBAR CONTROLS ---
-st.sidebar.title("🔧 Intelligence Hub")
+st.sidebar.title("Intelligence Hub")
 
 # COLLECTOR CONTROLS
-st.sidebar.header("🛰️ Collector")
+st.sidebar.header("Collector")
 st.session_state.collector_auto_start = st.sidebar.checkbox(
     "Auto-start once per session",
     value=st.session_state.collector_auto_start,
@@ -239,7 +239,7 @@ st.sidebar.markdown(f"""
 """, unsafe_allow_html=True)
 
 # FILTERS
-st.sidebar.header("🔍 Filters")
+st.sidebar.header("Filters")
 search_term = st.sidebar.text_input("Search Logs", placeholder="e.g. Economy, Rain...")
 selected_industry = st.sidebar.selectbox("Sector", ["All", "Energy & Fuel", "Logistics & Transport", "Finance & Economy", "Tourism", "Agriculture", "Public Safety"])
 stats_snapshot = db.get_risk_stats()
@@ -248,7 +248,7 @@ selected_sources = st.sidebar.multiselect("Sources", options=sorted(set(source_o
 
 # SETTINGS
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Settings")
+st.sidebar.header("Settings")
 refresh_rate = st.sidebar.slider("Refresh Rate (s)", 10, 300, 30, help="Controls how often the page refreshes while auto-refresh is on.")
 auto_refresh = st.sidebar.checkbox("Auto-Refresh", value=AUTO_REFRESH_DEFAULT)
 
@@ -256,7 +256,7 @@ demo_city = st.sidebar.selectbox("Demo Crisis City", ["Colombo", "Kandy", "Galle
 
 # GOD MODE (HIDDEN)
 st.sidebar.markdown("---")
-if st.sidebar.button("🚨 SIMULATE CRISIS (DEMO)"):
+if st.sidebar.button("SIMULATE CRISIS (DEMO)"):
     now = datetime.now().isoformat()
     demo_signals = {
         "Colombo": (
@@ -314,11 +314,11 @@ if st.sidebar.button("🚨 SIMULATE CRISIS (DEMO)"):
         }
     ]
     db.batch_insert_risks(fake_risks)
-    st.toast(f"🚨 Simulated crisis scenario injected for {demo_city}.")
+    st.toast(f"Simulated crisis scenario injected for {demo_city}.")
     st.rerun()
 
 # --- MAIN LAYOUT ---
-st.title("📡 MODEL-X: Risk Intelligence Platform")
+st.title("MODEL-X: Risk Intelligence Platform")
 df, stats = get_data(limit=1000, sources=selected_sources or None)
 
 # APPLY FILTERS
@@ -333,7 +333,7 @@ if selected_industry != "All" and not df.empty:
 st.sidebar.markdown("---")
 if not df.empty:
     st.sidebar.download_button(
-        label="📥 Download Filtered CSV",
+        label="Download Filtered CSV",
         data=df.to_csv(index=False),
         file_name=f"risk_intel_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
         mime="text/csv"
@@ -356,7 +356,7 @@ c3.metric("Active Sources", sources_count, "Configured")
 c4.metric("AI Engine", "Active", "Sentiment Analysis")
 
 # TABS
-tab1, tab2, tab3 = st.tabs(["🗺️ Geospatial View", "📈 Business Analytics", "📝 Live Risk Feed"])
+tab1, tab2, tab3 = st.tabs(["Geospatial View", "Business Analytics", "Live Risk Feed"])
 
 # --- TAB 1: MAP ---
 with tab1:
@@ -414,7 +414,7 @@ with tab2:
         c_left, c_right = st.columns([1, 1])
         
         with c_left:
-            st.subheader("🔥 Top 10 Trending Keywords")
+            st.subheader("Top 10 Trending Keywords")
             common_words = extract_trending_keywords(df)
 
             if common_words:
@@ -435,7 +435,7 @@ with tab2:
                 st.plotly_chart(fig_bar, use_container_width=True)
 
         st.divider()
-        st.subheader("📊 Industry Impact")
+        st.subheader("Industry Impact")
         if 'category' in df.columns:
             cats = df['category'].str.split(',').explode().str.strip()
             cat_counts = cats.value_counts().reset_index()
@@ -446,7 +446,7 @@ with tab2:
 # --- TAB 3: FEED ---
 with tab3:
     if high_risk > 0:
-        st.error(f"🚨 **Action Required:** {high_risk} critical risks detected. Review High Priority items below.")
+        st.error(f"**Action Required:** {high_risk} critical risks detected. Review High Priority items below.")
 
     if not df.empty:
         for _, row in df.head(20).iterrows():
@@ -470,9 +470,9 @@ with tab3:
                 </div>
                 <div style="color: #E0E0E0; margin-top: 5px;">{row.get('signal')}</div>
                 <div style="font-size: 12px; color: #888; margin-top: 12px; display: flex; justify-content: space-between;">
-                    <span style="background: #333; padding: 2px 6px; border-radius: 4px;">📂 {row.get('category')}</span>
-                    <span>🤖 Sent: {round(sentiment, 2)}</span>
-                    <div><span style="margin-right: 10px;">🕒 {time_str}</span><a href="{row.get('link')}" target="_blank" style="color: #64B5F6;">View ↗</a></div>
+                    <span style="background: #333; padding: 2px 6px; border-radius: 4px;">{row.get('category')}</span>
+                    <span>Sent: {round(sentiment, 2)}</span>
+                    <div><span style="margin-right: 10px;">{time_str}</span><a href="{row.get('link')}" target="_blank" style="color: #64B5F6;">View ↗</a></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
