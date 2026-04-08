@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Any
 import time
 import logging
+from urllib.parse import urlparse
 from dateutil import parser as date_parser
 import json
 from utils.resilience import fetch_rss_with_retry
@@ -71,9 +72,16 @@ def fetch_rss_feed(url: str, source_name: str, limit: int = 10) -> List[Dict[str
         # Add cache-busting parameter
         joiner = '&' if '?' in url else '?'
         url_with_cache = f"{url}{joiner}_={int(time.time())}"
+
+        parsed = urlparse(url)
+        base_origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else None
+        source_headers = {
+            'Referer': base_origin or 'https://www.google.com/',
+            'Origin': base_origin or 'https://www.google.com',
+        }
         
         # Use resilient fetch with automatic retry
-        response = fetch_rss_with_retry(url_with_cache)
+        response = fetch_rss_with_retry(url_with_cache, headers=source_headers)
         
         feed = feedparser.parse(response.content)
         

@@ -4,6 +4,7 @@ Attempts to fetch news from multiple sources with automatic fallback logic.
 """
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 from urllib.parse import urlparse
