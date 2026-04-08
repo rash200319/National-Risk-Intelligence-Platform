@@ -248,10 +248,10 @@ class HealthMonitor:
 health_monitor = HealthMonitor()
 
 # Pre-register known sources
-health_monitor.register_source('RSS - Ada Derana', 'RSS')
-health_monitor.register_source('RSS - Daily Mirror', 'RSS')
-health_monitor.register_source('RSS - Lanka Business Online', 'RSS')
-health_monitor.register_source('RSS - News First', 'RSS')
+health_monitor.register_source('Ada Derana', 'RSS')
+health_monitor.register_source('Daily Mirror', 'RSS')
+health_monitor.register_source('Lanka Business Online', 'RSS')
+health_monitor.register_source('News First', 'RSS')
 health_monitor.register_source('NewsAPI', 'API')
 health_monitor.register_source('GDELT', 'API')
 health_monitor.register_source('WorldBank', 'API')
