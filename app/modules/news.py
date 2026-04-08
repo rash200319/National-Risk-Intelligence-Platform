@@ -126,7 +126,7 @@ def fetch_news(limit_per_source: int = 20) -> List[Dict[str, Any]]:
         try:
             if not source.get('rss_url'):
                 continue
-            source_health_name = f"RSS - {source['name']}"
+            source_health_name = source['name']
             items = fetch_rss_feed(source['rss_url'], source['name'], limit_per_source)
             
             # Add source metadata
@@ -144,7 +144,7 @@ def fetch_news(limit_per_source: int = 20) -> List[Dict[str, Any]]:
             
         except Exception as e:
             logger.error(f"Error fetching from {source.get('name', 'unknown')}: {e}")
-            health_monitor.record_fetch(f"RSS - {source.get('name', 'unknown')}", False, 0, str(e))
+            health_monitor.record_fetch(source.get('name', 'unknown'), False, 0, str(e))
     
     # Sort by publication date (newest first)
     all_news.sort(key=lambda x: x.get('published', ''), reverse=True)

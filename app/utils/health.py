@@ -97,18 +97,34 @@ class HealthMonitor:
         self.sources: Dict[str, SourceHealth] = {}
         self.collection_logs: List[Dict[str, Any]] = []
         self.max_logs = 1000  # Keep last 1000 logs
+
+    def _infer_source_type(self, source_name: str, source_type: str = 'unknown') -> str:
+        if source_type != 'unknown':
+            return source_type
+
+        source = (source_name or '').lower()
+        if source.startswith('rss -') or source in {'ada derana', 'daily mirror', 'lanka business online', 'news first', 'groundviews', 'sri lanka guardian', 'economy next', 'colombo telegraph', 'lanka news web', 'island.lk', 'gossip lanka', 'ceylon today'}:
+            return 'RSS'
+        if source.startswith('reddit'):
+            return 'Social'
+        if source in {'newsapi', 'gdelt', 'worldbank'}:
+            return 'API'
+        return 'unknown'
     
     def register_source(self, source_name: str, source_type: str = 'unknown') -> SourceHealth:
         """Register a new data source for monitoring."""
+        inferred_type = self._infer_source_type(source_name, source_type)
+
         if source_name not in self.sources:
-            self.sources[source_name] = SourceHealth(source_name, source_type)
+            self.sources[source_name] = SourceHealth(source_name, inferred_type)
             logger.info(f"📊 Registered source for monitoring: {source_name}")
+        elif self.sources[source_name].source_type == 'unknown' and inferred_type != 'unknown':
+            self.sources[source_name].source_type = inferred_type
         return self.sources[source_name]
     
     def record_fetch(self, source_name: str, success: bool, items_count: int = 0, error: str = None):
         """Record a fetch attempt."""
-        if source_name not in self.sources:
-            self.register_source(source_name)
+        self.register_source(source_name)
         
         source = self.sources[source_name]
         
@@ -252,8 +268,13 @@ health_monitor.register_source('Ada Derana', 'RSS')
 health_monitor.register_source('Daily Mirror', 'RSS')
 health_monitor.register_source('Lanka Business Online', 'RSS')
 health_monitor.register_source('News First', 'RSS')
+health_monitor.register_source('Groundviews', 'RSS')
+health_monitor.register_source('Sri Lanka Guardian', 'RSS')
+health_monitor.register_source('Economy Next', 'RSS')
+health_monitor.register_source('Colombo Telegraph', 'RSS')
+health_monitor.register_source('Lanka News Web', 'RSS')
+health_monitor.register_source('Island.lk', 'RSS')
 health_monitor.register_source('NewsAPI', 'API')
 health_monitor.register_source('GDELT', 'API')
 health_monitor.register_source('WorldBank', 'API')
-health_monitor.register_source('Reddit - srilanka', 'Social')
-health_monitor.register_source('Reddit - Colombo', 'Social')
+health_monitor.register_source('Reddit - Mixed Subreddits', 'Social')
