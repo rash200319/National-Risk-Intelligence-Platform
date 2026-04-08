@@ -14,8 +14,8 @@ A Streamlit-based risk intelligence system for Sri Lanka that continuously colle
 ## Implemented Features
 
 **Data Collection:**
-- 10 active Sri Lankan news RSS feeds (Ada Derana, Daily Mirror, Economy Next, Gossip Lanka, Groundviews, Lanka Guardian, Colombo Telegraph, Island.lk, and others)
-- 8 Sri Lanka-related subreddits (srilanka, Colombo, Kandy, Galle, Jaffna, srilankans, srilanka_memes, ceylon) with relevance filtering
+- Sri Lankan news RSS feeds
+- Sri Lanka-related subreddits with relevance filtering
 - GDELT global events database (no API key required)
 - World Bank macroeconomic indicators (inflation, GDP, unemployment)
 - NewsAPI integration (optional, requires `NEWS_API_KEY` environment variable)
