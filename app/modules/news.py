@@ -7,6 +7,8 @@ import time
 import logging
 from dateutil import parser as date_parser
 import json
+from utils.resilience import fetch_rss_with_retry
+from utils.health import health_monitor
 
 # Configure logging
 logging.basicConfig(
@@ -22,14 +24,14 @@ NEWS_SOURCES = [
     {'name': 'Daily Mirror', 'rss_url': 'https://www.dailymirror.lk/RSS_Feeds/breaking-news', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': True},
     {'name': 'Lanka Business Online', 'rss_url': 'https://www.lankabusinessonline.com/feed/', 'category': 'business', 'language': 'en', 'country': 'LK', 'active': True},
     {'name': 'News First', 'rss_url': 'https://www.newsfirst.lk/latest-news/feed/', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': True},
-    {'name': 'Hiru News', 'rss_url': 'https://www.hirunews.lk/rss/hirunews-lk-news-sinhala-fb.xml', 'category': 'general', 'language': 'si', 'country': 'LK', 'active': True},
+    {'name': 'Hiru News', 'rss_url': 'https://www.hirunews.lk/rss/hirunews-lk-news-sinhala-fb.xml', 'category': 'general', 'language': 'si', 'country': 'LK', 'active': False},
     
     # NEW SOURCES (Volume & Diversity)
     {'name': 'Gossip Lanka', 'rss_url': 'https://www.gossiplankanews.com/feeds/posts/default?alt=rss', 'category': 'local', 'language': 'si', 'country': 'LK', 'active': True},
     {'name': 'Ceylon Today', 'rss_url': 'https://ceylontoday.lk/feed/', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': True},
-    {'name': 'The Morning', 'rss_url': 'https://www.themorning.lk/feed', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': True},
-    {'name': 'Daily FT', 'rss_url': 'https://www.ft.lk/rss/front-page', 'category': 'business', 'language': 'en', 'country': 'LK', 'active': True},
-    {'name': 'Sunday Times', 'rss_url': 'https://www.sundaytimes.lk/rss/news.xml', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': True},
+    {'name': 'The Morning', 'rss_url': 'https://www.themorning.lk/feed', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': False},
+    {'name': 'Daily FT', 'rss_url': 'https://www.ft.lk/rss/front-page', 'category': 'business', 'language': 'en', 'country': 'LK', 'active': False},
+    {'name': 'Sunday Times', 'rss_url': 'https://www.sundaytimes.lk/rss/news.xml', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': False},
     {'name': 'Groundviews', 'rss_url': 'https://groundviews.org/feed/', 'category': 'politics', 'language': 'en', 'country': 'LK', 'active': True},
     {'name': 'Sri Lanka Guardian', 'rss_url': 'https://slguardian.org/feed/', 'category': 'politics', 'language': 'en', 'country': 'LK', 'active': True},
     {'name': 'Economy Next', 'rss_url': 'https://economynext.com/feed/', 'category': 'business', 'language': 'en', 'country': 'LK', 'active': True},
@@ -61,17 +63,19 @@ def parse_date(date_str: str) -> Optional[datetime]:
         return None
 
 def fetch_rss_feed(url: str, source_name: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Fetch and parse an RSS feed."""
+    """
+    Fetch and parse an RSS feed with retry logic.
+    Automatically retries failed requests up to 3 times with exponential backoff.
+    """
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
         # Add cache-busting parameter
         joiner = '&' if '?' in url else '?'
-        url += f"{joiner}_={int(time.time())}"
+        url_with_cache = f"{url}{joiner}_={int(time.time())}"
         
-        feed = feedparser.parse(url, request_headers=headers)
+        # Use resilient fetch with automatic retry
+        response = fetch_rss_with_retry(url_with_cache)
+        
+        feed = feedparser.parse(response.content)
         
         items = []
         for entry in feed.entries[:limit]:
@@ -96,11 +100,11 @@ def fetch_rss_feed(url: str, source_name: str, limit: int = 10) -> List[Dict[str
                     'raw_data': json.dumps(entry, default=str)
                 })
             except Exception as e:
-                pass # Skip bad items
+                logger.debug(f"Skipped entry from {source_name}: {e}")
         
         return items
     except Exception as e:
-        logger.error(f"Error fetching RSS feed {url}: {e}")
+        logger.error(f"Error fetching RSS feed {url}: {e}. Will retry automatically.")
         return []
 
 def fetch_news(limit_per_source: int = 20) -> List[Dict[str, Any]]:
@@ -114,7 +118,7 @@ def fetch_news(limit_per_source: int = 20) -> List[Dict[str, Any]]:
         try:
             if not source.get('rss_url'):
                 continue
-                
+            source_health_name = f"RSS - {source['name']}"
             items = fetch_rss_feed(source['rss_url'], source['name'], limit_per_source)
             
             # Add source metadata
@@ -128,9 +132,11 @@ def fetch_news(limit_per_source: int = 20) -> List[Dict[str, Any]]:
             
             all_news.extend(items)
             logger.info(f"Fetched {len(items)} items from {source['name']}")
+            health_monitor.record_fetch(source_health_name, True, len(items))
             
         except Exception as e:
             logger.error(f"Error fetching from {source.get('name', 'unknown')}: {e}")
+            health_monitor.record_fetch(f"RSS - {source.get('name', 'unknown')}", False, 0, str(e))
     
     # Sort by publication date (newest first)
     all_news.sort(key=lambda x: x.get('published', ''), reverse=True)

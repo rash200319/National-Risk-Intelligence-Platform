@@ -4,13 +4,36 @@ load_dotenv()
 
 import pandas as pd
 import plotly.express as px
-import random
+import re
 from datetime import datetime
 import pydeck as pdk
 from streamlit_autorefresh import st_autorefresh
 from database_manager import db
 from collections import Counter
 from config import AUTO_REFRESH_DEFAULT
+
+TREND_FOCUS_TERMS = {
+    "power", "electricity", "fuel", "gas", "petrol", "energy", "grid", "ceb", "cpc",
+    "road", "traffic", "train", "bus", "port", "shipping", "airline", "flight", "transport",
+    "rupee", "dollar", "bank", "tax", "inflation", "stock", "market", "imf", "debt", "economy",
+    "tourist", "hotel", "visa", "airport", "travel", "resort", "booking",
+    "farmer", "crop", "rice", "fertilizer", "food", "tea", "export",
+    "protest", "strike", "curfew", "police", "attack", "violence", "disaster", "flood",
+    "crisis", "emergency", "warning", "alert", "shortage", "blackout", "shutdown", "inflation",
+    "layoff", "recession", "unemployment", "debt", "bankrupt", "supply", "import", "export",
+    "policy", "regulation", "ministry", "investment", "budget", "tariff", "shortage",
+}
+
+TREND_STOPWORDS = {
+    "the", "and", "for", "with", "from", "that", "this", "news", "sri", "lanka",
+    "breaking", "update", "daily", "mirror", "after", "before", "about", "over", "under",
+    "ceylon", "colombo", "announces", "announce", "anyone", "trump", "iran", "hormuz", "strait",
+    "ceasefire", "want", "need", "make", "going", "going", "said", "says", "will", "can",
+    "could", "would", "should", "new", "old", "today", "yesterday", "latest", "report",
+    "reported", "reports", "people", "story", "article", "thread", "post", "reddit", "really",
+    "thing", "things", "one", "two", "three", "also", "there", "their", "them", "been", "has",
+    "have", "had", "from", "into", "onto", "our", "your", "you", "they", "them", "its",
+}
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -108,6 +131,31 @@ def extract_map_data(df):
                     })
     return pd.DataFrame(map_points)
 
+
+def extract_trending_keywords(df, limit=10):
+    if df.empty or 'signal' not in df.columns:
+        return []
+
+    text = " ".join(str(title) for title in df['signal'].fillna(''))
+    raw_tokens = re.findall(r"[A-Za-z][A-Za-z']+", text.lower())
+
+    filtered_tokens = []
+    for token in raw_tokens:
+        if len(token) < 4:
+            continue
+        if token in TREND_STOPWORDS:
+            continue
+        if token not in TREND_FOCUS_TERMS:
+            continue
+        filtered_tokens.append(token.capitalize())
+
+    if not filtered_tokens:
+        return []
+
+    word_counts = Counter(filtered_tokens)
+    common_words = [(word, count) for word, count in word_counts.most_common() if count >= 1]
+    return common_words[:limit]
+
 # --- SIDEBAR CONTROLS ---
 st.sidebar.title("🔧 Intelligence Hub")
 
@@ -123,62 +171,79 @@ st.sidebar.markdown("""
 st.sidebar.header("🔍 Filters")
 search_term = st.sidebar.text_input("Search Logs", placeholder="e.g. Economy, Rain...")
 selected_industry = st.sidebar.selectbox("Sector", ["All", "Energy & Fuel", "Logistics & Transport", "Finance & Economy", "Tourism", "Agriculture", "Public Safety"])
-source_options = [s.get('source') for s in db.get_risk_stats().get('sources', [])]
-selected_sources = st.sidebar.multiselect("Sources", options=source_options)
+stats_snapshot = db.get_risk_stats()
+source_options = [s.get('source') for s in stats_snapshot.get('sources', []) if s.get('source')]
+selected_sources = st.sidebar.multiselect("Sources", options=sorted(set(source_options)))
 
 # SETTINGS
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Settings")
-refresh_rate = st.sidebar.slider("Refresh Rate (s)", 10, 300, 30)
+refresh_rate = st.sidebar.slider("Refresh Rate (s)", 10, 300, 30, help="Controls how often the page refreshes while auto-refresh is on.")
 auto_refresh = st.sidebar.checkbox("Auto-Refresh", value=AUTO_REFRESH_DEFAULT)
+
+demo_city = st.sidebar.selectbox("Demo Crisis City", ["Colombo", "Kandy", "Galle", "Jaffna"], index=0)
 
 # GOD MODE (HIDDEN)
 st.sidebar.markdown("---")
 if st.sidebar.button("🚨 SIMULATE CRISIS (DEMO)"):
     now = datetime.now().isoformat()
+    demo_signals = {
+        "Colombo": (
+            "MAJOR POWER FAILURE: Island-wide blackout reported in Colombo. Emergency protocols activated.",
+            "Energy & Fuel, Public Safety",
+            "simulation, blackout",
+            10,
+            -0.9,
+            1.0,
+        ),
+        "Kandy": (
+            "Severe transport disruption reported in Kandy due to emergency road closures.",
+            "Logistics & Transport, Public Safety",
+            "simulation, transport",
+            8,
+            -0.7,
+            0.95,
+        ),
+        "Galle": (
+            "Flood warning issued for Galle coastal belt with heavy rainfall expected.",
+            "Public Safety, Agriculture",
+            "simulation, flood",
+            9,
+            -0.8,
+            0.98,
+        ),
+        "Jaffna": (
+            "Public order disruption reported in Jaffna after emergency service delays.",
+            "Public Safety",
+            "simulation, public order",
+            8,
+            -0.75,
+            0.96,
+        ),
+    }
+
+    signal, category, keywords, score, sentiment_score, confidence = demo_signals.get(
+        demo_city,
+        demo_signals["Colombo"],
+    )
+
     fake_risks = [
         {
             "source": "National Alert System",
-            "signal": "MAJOR POWER FAILURE: Island-wide blackout reported in Colombo. Emergency protocols activated.",
-            "risk_score": 10,
-            "category": "Energy & Fuel, Public Safety",
-            "location": "Colombo",
+            "signal": signal,
+            "risk_score": score,
+            "category": category,
+            "location": demo_city,
             "link": "#",
             "published": now,
             "created_at": now,
-            "sentiment_score": -0.9,
-            "confidence": 1.0,
-            "keywords": "simulation, blackout",
-        },
-        {
-            "source": "Transport Monitoring Unit",
-            "signal": "Severe transport disruption reported in Kandy due to emergency road closures.",
-            "risk_score": 8,
-            "category": "Logistics & Transport, Public Safety",
-            "location": "Kandy",
-            "link": "#",
-            "published": now,
-            "created_at": now,
-            "sentiment_score": -0.7,
-            "confidence": 0.95,
-            "keywords": "simulation, transport",
-        },
-        {
-            "source": "Disaster Response Desk",
-            "signal": "Flood warning issued for Galle coastal belt with heavy rainfall expected.",
-            "risk_score": 9,
-            "category": "Public Safety, Agriculture",
-            "location": "Galle",
-            "link": "#",
-            "published": now,
-            "created_at": now,
-            "sentiment_score": -0.8,
-            "confidence": 0.98,
-            "keywords": "simulation, flood",
-        },
+            "sentiment_score": sentiment_score,
+            "confidence": confidence,
+            "keywords": keywords,
+        }
     ]
     db.batch_insert_risks(fake_risks)
-    st.toast("🚨 Simulated crisis scenario injected (3 linked events).")
+    st.toast(f"🚨 Simulated crisis scenario injected for {demo_city}.")
     st.rerun()
 
 # --- MAIN LAYOUT ---
@@ -207,15 +272,16 @@ if not df.empty:
 c1, c2, c3, c4 = st.columns(4)
 total = len(df)
 high_risk = len(df[df['risk_score'] >= 7]) if not df.empty else 0
+
 sources_count = len(stats.get('sources', []))
 
-# Simulated Deltas
-delta_total = random.randint(1, 5) if total > 0 else 0
-delta_risk = random.randint(0, 2) if high_risk > 0 else 0
+# Stable deltas from actual DB state
+delta_total = stats.get('total', total) if isinstance(stats, dict) else total
+delta_risk = high_risk
 
-c1.metric("Total Intel Logs", total, f"+{delta_total} new")
-c2.metric("Critical Alerts", high_risk, f"+{delta_risk} new", delta_color="inverse")
-c3.metric("Active Sources", sources_count, "Stable")
+c1.metric("Total Intel Logs", total, f"{delta_total} total")
+c2.metric("Critical Alerts", high_risk, f"{delta_risk} high risk", delta_color="inverse")
+c3.metric("Active Sources", sources_count, "Configured")
 c4.metric("AI Engine", "Active", "Sentiment Analysis")
 
 # TABS
@@ -278,25 +344,18 @@ with tab2:
         
         with c_left:
             st.subheader("🔥 Top 10 Trending Keywords")
-            if 'signal' in df.columns:
-                text = " ".join(str(title) for title in df['signal'])
-                words = text.split()
-                stop_words = {'the', 'and', 'for', 'with', 'from', 'that', 'this', 'news', 'sri', 'lanka', 'breaking', 'update', 'daily', 'mirror'}
-                words = [w.capitalize() for w in words if len(w) > 3 and w.lower() not in stop_words]
-                
-                if words:
-                    # Count and create DataFrame for Bar Chart
-                    word_counts = Counter(words)
-                    common_words = word_counts.most_common(10)
-                    df_words = pd.DataFrame(common_words, columns=['Keyword', 'Count'])
-                    
-                    # Horizontal Bar Chart (Clean & Professional)
-                    fig_words = px.bar(df_words, x='Count', y='Keyword', orientation='h', 
-                                     color='Count', color_continuous_scale='Reds')
-                    fig_words.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
-                    st.plotly_chart(fig_words, use_container_width=True)
-                else:
-                    st.info("Gathering text data...")
+            common_words = extract_trending_keywords(df)
+
+            if common_words:
+                df_words = pd.DataFrame(common_words, columns=['Keyword', 'Count'])
+
+                # Horizontal Bar Chart (clean, business/risk-focused)
+                fig_words = px.bar(df_words, x='Count', y='Keyword', orientation='h',
+                                   color='Count', color_continuous_scale='Reds')
+                fig_words.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+                st.plotly_chart(fig_words, use_container_width=True)
+            else:
+                st.info("No business/risk keywords found in the current dataset.")
         
         with c_right:
             st.subheader("Risk Severity")
