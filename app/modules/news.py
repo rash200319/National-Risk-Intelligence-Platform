@@ -38,7 +38,7 @@ NEWS_SOURCES = [
     {'name': 'Island.lk', 'rss_url': 'http://island.lk/feed/', 'category': 'general', 'language': 'en', 'country': 'LK', 'active': True}
 ]
 
-# NewsAPI configuration (if available)
+# NewsAPI configuration 
 NEWS_API_KEY = None  
 NEWS_API_ENDPOINT = 'https://newsapi.org/v2/everything'
 

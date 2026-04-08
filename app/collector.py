@@ -7,14 +7,11 @@ from datetime import datetime
 from textblob import TextBlob  # <--- NEW: AI Sentiment
 import pandas as pd
 from database_manager import db
+from config import FETCH_LIMIT, REFRESH_INTERVAL
 
 # Import Feed Fetchers
 from modules.news import fetch_news
 from modules.social import get_reddit_rss
-
-# --- CONFIGURATION ---
-REFRESH_INTERVAL = 300  # 5 Minutes
-FETCH_LIMIT = 20        # Items per source
 
 # --- INDUSTRY KEYWORDS (BUSINESS CONTEXT) ---
 INDUSTRIES = {

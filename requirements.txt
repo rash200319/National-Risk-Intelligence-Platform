@@ -1,3 +1,6 @@
+
+
+
 fastapi==0.109.0
 uvicorn==0.27.0
 python-dotenv==1.0.0
@@ -6,6 +9,7 @@ pydantic==2.5.2
 requests==2.31.0
 python-multipart==0.0.6
 streamlit==1.42.0
+streamlit-autorefresh==1.0.1
 pandas
 feedparser
 tweepy
@@ -16,3 +20,5 @@ schedule
 pydeck
 plotly
 numpy
+textblob==0.18.0.post0
+pytest==8.3.5

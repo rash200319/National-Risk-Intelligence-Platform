@@ -1,15 +1,18 @@
 import sqlite3
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict, Optional, Any
 import hashlib
 import os
+from pathlib import Path
 
-DB_NAME = "data/modelx.db"
+from config import DB_PATH
 
-# Ensure data directory exists
-if not os.path.exists("data"):
-    os.makedirs("data")
+DB_NAME = DB_PATH
+
+# Ensure database directory exists
+db_parent = Path(DB_NAME).parent
+db_parent.mkdir(parents=True, exist_ok=True)
 
 class DatabaseManager:
     def __init__(self, db_path: str = DB_NAME):
@@ -19,7 +22,7 @@ class DatabaseManager:
     
     def _get_connection(self):
         """Create a database connection with WAL mode enabled."""
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         # ENABLE WAL MODE (Write-Ahead Logging) -> Allows reading while writing
         conn.execute("PRAGMA journal_mode=WAL;") 
@@ -108,6 +111,7 @@ class DatabaseManager:
             c.execute('CREATE INDEX IF NOT EXISTS idx_risks_source ON risks(source)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_risks_risk_score ON risks(risk_score)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_risks_created_at ON risks(created_at)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_risks_published ON risks(published)')
             
             conn.commit()
 
@@ -197,15 +201,24 @@ class DatabaseManager:
             params['min_score'] = min_score
             
         if sources:
-            # Safe way to handle list IN clause
-            query += f" AND source IN ({','.join(['?']*len(sources))})"
-            # Add sources to params list implicitly via execute args later? 
-            # Pandas read_sql params is usually a dict or tuple.
-            # Simpler approach: Filter in Pandas if list is small, or use named params loop
-            pass 
-            
-        query += " ORDER BY published DESC LIMIT :limit"
-        params['limit'] = limit
+            placeholders = []
+            for idx, source in enumerate(sources):
+                key = f"source_{idx}"
+                placeholders.append(f":{key}")
+                params[key] = source
+            query += f" AND source IN ({', '.join(placeholders)})"
+
+        if start_date:
+            query += " AND published >= :start_date"
+            params['start_date'] = start_date
+
+        if end_date:
+            query += " AND published <= :end_date"
+            params['end_date'] = end_date
+
+        query += " ORDER BY COALESCE(published, created_at) DESC LIMIT :limit OFFSET :offset"
+        params['limit'] = max(1, int(limit))
+        params['offset'] = max(0, int(offset))
         
         try:
             with self._get_connection() as conn:

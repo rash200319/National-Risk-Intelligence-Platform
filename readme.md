@@ -1,78 +1,212 @@
-
 # MODEL-X: National Risk Intelligence Platform
 
-MODEL-X is a real-time situational awareness and risk intelligence platform designed for the Sri Lankan business context. It aggregates unstructured data from multiple news sources and social media channels to detect, analyze, and visualize operational risks such as economic instability, natural disasters, and civil unrest.
+This repository is a Streamlit-based risk intelligence prototype for Sri Lanka. It ingests RSS news and Reddit posts, assigns each item a risk score and industry tags, stores records in SQLite, and renders a live operations dashboard.
 
-The system is built as a multi-threaded ETL (Extract, Transform, Load) pipeline that processes data using Natural Language Processing (NLP) for sentiment analysis and industry tagging, presenting actionable insights via an interactive dashboard.
+This README is based on the current codebase state and is intended to explain exactly what is implemented today.
 
-## Key Features
+## 1) What this project does
 
-- **Real-Time Data Aggregation**: Automatically fetches breaking news and updates from over 16 Sri Lankan news RSS feeds and Reddit discussions every 5 minutes.
-- **Deduplication Engine**: Implements a deterministic hashing algorithm to generate unique identifiers for every news item, preventing duplicate entries in the database.
-- **AI-Powered Analysis**:
-  - **Sentiment Scoring**: Uses NLP (TextBlob) to analyze the tone of each article (Positive/Negative) to assist in risk scoring.
-  - **Industry Tagging**: Automatically categorizes risks into relevant sectors such as Energy, Finance, Logistics, and Agriculture based on keyword analysis.
-  - **Geospatial Intelligence**: Maps risk events to specific locations across Sri Lanka to provide geographical context.
-- **Business Intelligence Dashboard**:
-  - Activity Trends: Automatically switches between hourly and daily views based on data volume.
-  - Trending Topics: Visualizes high-frequency keywords to identify emerging narratives.
-  - Critical Alerts: Highlights high-risk events that require immediate attention.
-- **Crisis Simulation (Demo Mode)**: Includes a simulation tool to inject high-priority risk events for demonstration and testing purposes.
+- Runs a Streamlit app from `app/app.py`.
+- Starts a background collector thread automatically when the app starts.
+- Fetches data from:
+  - Multiple Sri Lankan news RSS feeds (`app/modules/news.py`)
+  - Multiple Sri Lankan subreddits via RSS (`app/modules/social.py`)
+- Analyzes text using TextBlob sentiment + keyword matching (`app/collector.py`).
+- Persists data in SQLite (`app/database_manager.py`) with deduplication.
+- Displays map bubbles, trend charts, keyword bars, severity histogram, industry impact pie, and a live feed (`app/app.py`).
 
-## Technical Architecture
+## 2) End-to-end runtime flow
 
-The system follows a modular architecture comprising a backend collector, a persistent database, and a frontend visualization layer.
+1. `app/app.py` runs under Streamlit.
+2. `load_dotenv()` is called, then `start_background_collector()` starts `collector` in a daemon thread.
+3. Collector loop (`RiskCollector.run_loop`) executes every 300 seconds:
+   - Pull news items from `fetch_news(...)`
+   - Pull Reddit posts from `get_reddit_rss(...)`
+   - Score each item with `_analyze_context(...)`
+   - Insert into DB via `db.batch_insert_risks(...)`
+4. Streamlit UI repeatedly queries DB via:
+   - `db.get_risks(limit=...)`
+   - `db.get_risk_stats()`
+5. Optional auto-refresh uses `streamlit-autorefresh` timers (no blocking sleep loop).
 
-- **Collector Module**: A background thread that polls RSS feeds and APIs. It handles connection errors gracefully and parses unstructured text into structured records.
-- **Processing Layer**: Cleans text, generates hash IDs for deduplication, calculates sentiment scores, and assigns risk levels (1-10) based on keyword severity.
-- **Storage Layer**: Uses SQLite with Write-Ahead Logging (WAL) enabled to support concurrent reading and writing, ensuring the dashboard remains responsive while data is being collected.
-- **Presentation Layer**: A Streamlit-based web interface that provides interactive charts (Plotly), maps, and searchable data tables.
+## 3) Current project structure (everything in workspace)
 
-## Installation and Setup
+```text
+National-Risk-Intelligence-Platform/
+  .env.example
+  documentation (2).pdf
+  process.readme
+  readme.md
+  requirements.txt
+  .vscode/
+    settings.json
+  app/
+    app.py
+    collector.py
+    database_manager.py
+    populate_data.py
+    data/
+      modelx.db
+      modelx.db-shm
+      modelx.db-wal
+    logs/
+      system.log
+    modules/
+      news.py
+      social.py
+      __pycache__/*.pyc
+    __pycache__/*.pyc
+  data/
+    modelx.db
+```
 
-### Prerequisites
+Notes:
+- `__pycache__` files are generated artifacts.
+- `*.db`, `*.db-shm`, and `*.db-wal` are runtime database files.
+- `documentation (2).pdf` exists but is not referenced by Python code.
+- There are two DB locations in workspace (`app/data/modelx.db` and `data/modelx.db`). Current default config uses `app/data/modelx.db`.
 
-- Python 3.8 or higher
-- pip (Python package manager)
+## 4) File-by-file explanation
 
-### Installation Steps
+### Root files
 
-1. Clone the repository to your local machine.
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Create a `.env` file in the root directory (optional, if API keys are required for future extensions).
+- `.env.example`
+  - Contains environment-style settings and placeholders.
+  - Currently includes duplicate `DATABASE_URL` entries and Twitter credential keys.
+  - The current Python code does not actively read most of these env vars yet.
 
-### Running the Application
+- `process.readme`
+  - Legacy setup notes from an earlier structure.
+  - Not fully aligned with the current `app/` layout.
 
-To start the platform, run the following command in your terminal:
+- `requirements.txt`
+  - Active dependency file for this repo.
+  - Includes Streamlit, streamlit-autorefresh, feedparser, plotly, pydeck, textblob, and pytest.
+
+- `.vscode/settings.json`
+  - Adds Python analysis extra path to `app` for editor import resolution.
+
+### App pipeline
+
+- `app/app.py`
+  - Streamlit UI entrypoint.
+  - Loads dotenv and autostarts collector thread.
+  - Uses `db.get_risks()` and `db.get_risk_stats()` for data.
+  - Includes:
+    - Sidebar filters and controls
+    - CSV download
+    - "Simulate Crisis" button that inserts a 3-event scenario
+    - 3 tabs: geospatial, analytics, live feed
+  - Uses simple location extraction by checking city names in signal text.
+
+- `app/collector.py`
+  - Background data collection service.
+  - Core runtime values are loaded from env via `app/config.py`.
+  - `_analyze_context(text)`:
+    - Uses `TextBlob(...).sentiment.polarity`
+    - Converts sentiment to risk score buckets
+    - Boosts risk if crisis keywords appear
+    - Maps keywords to industries
+  - `fetch_realtime()`:
+    - Ingests news + reddit
+    - Constructs normalized records
+    - Writes to DB through `db.batch_insert_risks(...)`
+
+- `app/database_manager.py`
+  - SQLite manager with WAL mode enabled.
+  - Ensures DB parent directory exists from configured DB path.
+  - Creates tables:
+    - `risks`
+    - `historical_collection`
+    - `locations`
+    - `risk_trends`
+    - `data_collection_logs`
+  - Dedup behavior:
+    - Rewrites transient IDs (`news_*`, `reddit_*`) into deterministic MD5 hash of `source + signal`
+    - Uses `INSERT OR IGNORE`
+  - `get_risks(...)` now supports source and date filtering.
+  - Exposes:
+    - `insert_risk`
+    - `batch_insert_risks`
+    - `get_risks`
+    - `get_risk_stats`
+
+- `app/populate_data.py`
+  - Inserts 5 simulation records directly into DB for testing map/chart behavior.
+  - Uses raw SQL insert via `db._get_connection()`.
+
+### Data source modules
+
+- `app/modules/news.py`
+  - Defines large RSS source list in `NEWS_SOURCES`.
+  - `fetch_rss_feed(...)` parses feed entries and normalizes fields.
+  - `fetch_news(...)` loops all active sources and returns consolidated, date-sorted items.
+  - Includes historical fetch helpers.
+  - `NEWS_API_KEY` currently hard-coded as `None` and not actively used for API calls.
+
+- `app/modules/social.py`
+  - Fetches subreddit RSS feeds with custom User-Agent.
+  - Returns DataFrame of deduplicated posts by `link`.
+  - Contains placeholder `fetch_twitter_data(...)` to avoid import failures.
+
+### Runtime artifacts
+
+- `app/logs/system.log`
+  - Historical run logs.
+  - Shows prior schema mismatch errors (`no column named category`) from older DB state.
+
+- `app/data/modelx.db` (+ shm/wal)
+  - Canonical runtime DB path by default.
+
+- `data/modelx.db`
+  - Additional DB file at root level.
+  - May be from running scripts from a different working directory.
+
+- `__pycache__/*.pyc`
+  - Python bytecode cache files.
+
+## 5) How to run (current, tested command shape)
+
+From repository root:
 
 ```bash
+pip install -r requirements.txt
+streamlit run app/app.py
+```
+
+Alternative from `app/`:
+
+```bash
+pip install -r ..\requirements.txt
 streamlit run app.py
 ```
 
-The dashboard will launch in your default web browser at `http://localhost:8501`. The data collector will start automatically in the background.
+App URL: `http://localhost:8501`
 
-## Usage Guide
+## 6) Environment variables and config status
 
-- **Dashboard Overview**: The main page displays key metrics including total logs, critical alerts, and active sources.
-- **Map View**: Select the "Geospatial View" tab to see risk events plotted on the map of Sri Lanka.
-- **Analytics**: The "Business Analytics" tab provides trend lines, risk severity distributions, and industry impact charts.
-- **Risk Feed**: The "Live Risk Feed" tab lists individual alerts with sentiment scores and source links.
-- **Filters**: Use the sidebar to filter data by specific industries (e.g., Finance, Logistics) or search for keywords.
-- **Simulation**: For demonstration purposes, use the "Simulate Crisis" button in the sidebar to inject a mock critical event.
+Current code behavior:
+- `load_dotenv()` is called in `app/app.py` and `app/config.py`.
+- Runtime values are env-driven:
+  - `MODELX_DB_PATH`
+  - `MODELX_REFRESH_INTERVAL`
+  - `MODELX_FETCH_LIMIT`
+  - `MODELX_AUTO_REFRESH_DEFAULT`
 
-## Dependencies
+## 7) Known gaps and quirks (important)
 
-- Streamlit: Frontend framework.
-- Pandas: Data manipulation and analysis.
-- Plotly: Interactive charting.
-- TextBlob: Sentiment analysis.
-- WordCloud / Matplotlib: Keyword visualization.
-- Feedparser: RSS feed aggregation.
-- SQLite3: Database management.
+- There are still two DB files in the repository tree (`app/data/modelx.db` and `data/modelx.db`) and this can confuse manual inspection.
+- Test imports rely on `tests/conftest.py` path injection; package-style imports were not introduced yet.
+- Duplicate DB files in two locations can cause confusion about which dataset is shown.
 
-## License
+## 8) Suggested cleanup roadmap
 
-This project is developed for the MODEL-X Hackathon.
+1. Move all secrets out of `.env.example`, keep placeholders only.
+2. Remove or archive `data/modelx.db` so only one DB file is kept for demos.
+3. Keep env placeholders only in `.env.example` and never commit real secrets.
+4. Expand the test suite with one Streamlit smoke test and one collector integration test.
+5. Add a simple Makefile or task runner command for one-step setup.
+
+## 9) License
+
+No explicit license file is present in the repository at this time.

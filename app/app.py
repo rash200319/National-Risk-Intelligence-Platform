@@ -4,11 +4,13 @@ load_dotenv()
 
 import pandas as pd
 import plotly.express as px
-import time
 import random
 from datetime import datetime
+import pydeck as pdk
+from streamlit_autorefresh import st_autorefresh
 from database_manager import db
 from collections import Counter
+from config import AUTO_REFRESH_DEFAULT
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -70,9 +72,15 @@ st.markdown("""
 
 # --- HELPER FUNCTIONS ---
 @st.cache_data(ttl=10)
-def get_data(limit=1000):
+def get_data(limit=1000, min_score=None, sources=None, start_date=None, end_date=None):
     try:
-        df = db.get_risks(limit=limit)
+        df = db.get_risks(
+            limit=limit,
+            min_score=min_score,
+            sources=sources,
+            start_date=start_date,
+            end_date=end_date,
+        )
         stats = db.get_risk_stats()
         return df, stats
     except Exception:
@@ -84,9 +92,20 @@ def extract_map_data(df):
         for _, row in df.iterrows():
             text = str(row.get('signal', '')).lower()
             source = row.get('source', 'Unknown')
+            score = int(row.get('risk_score', 1) or 1)
+            color = [255, 82, 82, 200] if score >= 8 else [255, 167, 38, 180] if score >= 5 else [102, 187, 106, 170]
             for city, coords in SRI_LANKA_CITIES.items():
                 if city.lower() in text:
-                    map_points.append({"lat": coords[0], "lon": coords[1], "City": city, "Source": source})
+                    map_points.append({
+                        "lat": coords[0],
+                        "lon": coords[1],
+                        "City": city,
+                        "Source": source,
+                        "risk_score": score,
+                        "signal": str(row.get('signal', '')),
+                        "radius": max(15000, score * 3500),
+                        "color": color,
+                    })
     return pd.DataFrame(map_points)
 
 # --- SIDEBAR CONTROLS ---
@@ -104,49 +123,67 @@ st.sidebar.markdown("""
 st.sidebar.header("🔍 Filters")
 search_term = st.sidebar.text_input("Search Logs", placeholder="e.g. Economy, Rain...")
 selected_industry = st.sidebar.selectbox("Sector", ["All", "Energy & Fuel", "Logistics & Transport", "Finance & Economy", "Tourism", "Agriculture", "Public Safety"])
+source_options = [s.get('source') for s in db.get_risk_stats().get('sources', [])]
+selected_sources = st.sidebar.multiselect("Sources", options=source_options)
 
 # SETTINGS
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Settings")
 refresh_rate = st.sidebar.slider("Refresh Rate (s)", 10, 300, 30)
-auto_refresh = st.sidebar.checkbox("Auto-Refresh", value=True)
-
-# EXPORT
-st.sidebar.markdown("---")
-df_download, _ = get_data(limit=1000)
-if not df_download.empty:
-    st.sidebar.download_button(
-        label="📥 Download Report (CSV)",
-        data=df_download.to_csv(index=False),
-        file_name=f"risk_intel_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-        mime="text/csv"
-    )
+auto_refresh = st.sidebar.checkbox("Auto-Refresh", value=AUTO_REFRESH_DEFAULT)
 
 # GOD MODE (HIDDEN)
 st.sidebar.markdown("---")
 if st.sidebar.button("🚨 SIMULATE CRISIS (DEMO)"):
-    fake_risk = {
-        "id": f"sim_{int(time.time())}",
-        "source": "National Alert System",
-        "signal": "MAJOR POWER FAILURE: Island-wide blackout reported. Emergency protocols activated.",
-        "risk_score": 10,
-        "category": "Energy & Fuel, Public Safety",
-        "location": "Colombo",
-        "link": "#",
-        "published": datetime.now().isoformat(),
-        "created_at": datetime.now().isoformat(),
-        "sentiment_score": -0.9,
-        "confidence": 1.0,
-        "keywords": "simulation"
-    }
-    db.batch_insert_risks([fake_risk])
-    st.toast("🚨 Crisis Event Injected Successfully!")
-    time.sleep(1)
+    now = datetime.now().isoformat()
+    fake_risks = [
+        {
+            "source": "National Alert System",
+            "signal": "MAJOR POWER FAILURE: Island-wide blackout reported in Colombo. Emergency protocols activated.",
+            "risk_score": 10,
+            "category": "Energy & Fuel, Public Safety",
+            "location": "Colombo",
+            "link": "#",
+            "published": now,
+            "created_at": now,
+            "sentiment_score": -0.9,
+            "confidence": 1.0,
+            "keywords": "simulation, blackout",
+        },
+        {
+            "source": "Transport Monitoring Unit",
+            "signal": "Severe transport disruption reported in Kandy due to emergency road closures.",
+            "risk_score": 8,
+            "category": "Logistics & Transport, Public Safety",
+            "location": "Kandy",
+            "link": "#",
+            "published": now,
+            "created_at": now,
+            "sentiment_score": -0.7,
+            "confidence": 0.95,
+            "keywords": "simulation, transport",
+        },
+        {
+            "source": "Disaster Response Desk",
+            "signal": "Flood warning issued for Galle coastal belt with heavy rainfall expected.",
+            "risk_score": 9,
+            "category": "Public Safety, Agriculture",
+            "location": "Galle",
+            "link": "#",
+            "published": now,
+            "created_at": now,
+            "sentiment_score": -0.8,
+            "confidence": 0.98,
+            "keywords": "simulation, flood",
+        },
+    ]
+    db.batch_insert_risks(fake_risks)
+    st.toast("🚨 Simulated crisis scenario injected (3 linked events).")
     st.rerun()
 
 # --- MAIN LAYOUT ---
 st.title("📡 MODEL-X: Risk Intelligence Platform")
-df, stats = get_data(limit=1000)
+df, stats = get_data(limit=1000, sources=selected_sources or None)
 
 # APPLY FILTERS
 if search_term and not df.empty:
@@ -155,6 +192,16 @@ if search_term and not df.empty:
 
 if selected_industry != "All" and not df.empty:
     df = df[df['category'].str.contains(selected_industry, case=False, na=False)]
+
+# EXPORT (filtered data)
+st.sidebar.markdown("---")
+if not df.empty:
+    st.sidebar.download_button(
+        label="📥 Download Filtered CSV",
+        data=df.to_csv(index=False),
+        file_name=f"risk_intel_filtered_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv"
+    )
 
 # TOP METRICS
 c1, c2, c3, c4 = st.columns(4)
@@ -178,7 +225,21 @@ tab1, tab2, tab3 = st.tabs(["🗺️ Geospatial View", "📈 Business Analytics"
 with tab1:
     map_df = extract_map_data(df)
     if not map_df.empty:
-        st.map(map_df, zoom=7, color="#FF0000", size=200)
+        layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=map_df,
+            get_position='[lon, lat]',
+            get_radius='radius',
+            get_fill_color='color',
+            pickable=True,
+            opacity=0.5,
+        )
+        view_state = pdk.ViewState(latitude=7.8731, longitude=80.7718, zoom=7)
+        tooltip = {
+            "html": "<b>{City}</b><br/>{Source}<br/>Risk: {risk_score}/10<br/>{signal}",
+            "style": {"color": "white", "backgroundColor": "#111"},
+        }
+        st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip))
     else:
         st.info(f"No location-specific risks found.")
 
@@ -289,5 +350,4 @@ with tab3:
         st.info("No data available.")
 
 if auto_refresh:
-    time.sleep(refresh_rate)
-    st.rerun()
+    st_autorefresh(interval=refresh_rate * 1000, key="modelx_auto_refresh")
