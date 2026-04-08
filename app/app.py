@@ -35,6 +35,8 @@ TREND_STOPWORDS = {
     "have", "had", "from", "into", "onto", "our", "your", "you", "they", "them", "its",
 }
 
+CRITICAL_RISK_THRESHOLD = 8
+
 # --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="MODEL-X Risk Intelligence",
@@ -342,7 +344,7 @@ if not df.empty:
 # TOP METRICS
 c1, c2, c3, c4 = st.columns(4)
 total = len(df)
-high_risk = len(df[df['risk_score'] >= 7]) if not df.empty else 0
+high_risk = len(df[df['risk_score'] >= CRITICAL_RISK_THRESHOLD]) if not df.empty else 0
 
 sources_count = len(stats.get('sources', []))
 
@@ -351,7 +353,7 @@ delta_total = stats.get('total', total) if isinstance(stats, dict) else total
 delta_risk = high_risk
 
 c1.metric("Total Intel Logs", total, f"{delta_total} total")
-c2.metric("Critical Alerts", high_risk, f"{delta_risk} high risk", delta_color="inverse")
+c2.metric("Critical Alerts", high_risk, f"{delta_risk} risk >= {CRITICAL_RISK_THRESHOLD}", delta_color="inverse")
 c3.metric("Active Sources", sources_count, "Configured")
 c4.metric("AI Engine", "Active", "Sentiment Analysis")
 
@@ -452,7 +454,7 @@ with tab3:
         for _, row in df.head(20).iterrows():
             score = row.get('risk_score', 0)
             sentiment = row.get('sentiment_score', 0)
-            if score >= 8: border = "#FF5252"
+            if score >= CRITICAL_RISK_THRESHOLD: border = "#FF5252"
             elif score >= 5: border = "#FFA726"
             else: border = "#66BB6A"
             
