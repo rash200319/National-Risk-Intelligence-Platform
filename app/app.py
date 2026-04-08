@@ -49,6 +49,8 @@ def _init_app_state():
         st.session_state.collector_started = False
     if "collector_error" not in st.session_state:
         st.session_state.collector_error = ""
+    if "collector_auto_start" not in st.session_state:
+        st.session_state.collector_auto_start = False
 
 
 def start_background_collector():
@@ -81,7 +83,14 @@ def stop_background_collector():
         return False
 
 
+def start_collector_once():
+    """Auto-start collector exactly once per session when enabled."""
+    if st.session_state.collector_auto_start and not st.session_state.collector_started:
+        start_background_collector()
+
+
 _init_app_state()
+start_collector_once()
 
 # --- MAP COORDINATES ---
 SRI_LANKA_CITIES = {
@@ -192,6 +201,11 @@ st.sidebar.title("🔧 Intelligence Hub")
 
 # COLLECTOR CONTROLS
 st.sidebar.header("🛰️ Collector")
+st.session_state.collector_auto_start = st.sidebar.checkbox(
+    "Auto-start once per session",
+    value=st.session_state.collector_auto_start,
+    help="Starts collector after Streamlit initializes this session.",
+)
 if st.session_state.collector_started:
     st.sidebar.success("Collector is running")
 else:

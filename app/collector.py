@@ -3,6 +3,7 @@ import threading
 import uuid
 import logging
 import re
+import asyncio
 from datetime import datetime
 from nltk.sentiment import SentimentIntensityAnalyzer
 import nltk
@@ -297,6 +298,9 @@ class RiskCollector:
             health_monitor.record_fetch('Reddit - Mixed Subreddits', False, 0, str(e))
 
     def run_loop(self):
+        # Ensure this worker thread always has its own event loop for async-compatible libraries.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         while self.is_running:
             self.fetch_realtime()
             time.sleep(REFRESH_INTERVAL)
