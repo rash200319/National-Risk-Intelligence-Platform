@@ -105,14 +105,26 @@ def render_source_status(dashboard_data):
         })
     
     df_health = pd.DataFrame(health_data)
-    
-    # Color code by status
-    styled_df = df_health.style.applymap(
-        lambda x: 'background-color: #90EE90' if x == 'HEALTHY' else 'background-color: #FFB6C6' if x == 'UNHEALTHY' else 'background-color: #E6E6E6' if x == 'NO_DATA' else '',
-        subset=['Status']
-    )
-    
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    badge_map = {
+        'HEALTHY': '🟢 Healthy',
+        'UNHEALTHY': '🔴 Unhealthy',
+        'NO_DATA': '⚪ No Data'
+    }
+    df_health['Status Badge'] = df_health['Status'].map(lambda value: badge_map.get(value, value))
+    display_columns = [
+        'Source',
+        'Status Badge',
+        'Type',
+        'Last Fetch',
+        'Success',
+        'Failures',
+        'Success Rate',
+        'Latest Items',
+        'Total Items',
+        'Last Error',
+    ]
+
+    st.dataframe(df_health[display_columns], use_container_width=True, hide_index=True)
     
     # Source details in expanders
     st.subheader("Detailed Source Information")

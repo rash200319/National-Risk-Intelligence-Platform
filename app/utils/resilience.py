@@ -55,7 +55,6 @@ def resilient_fetch(max_retries=3, backoff_factor=2, timeout=10):
         retry=retry_if_exception_type((
             requests.ConnectionError,
             requests.Timeout,
-            requests.RequestException
         )),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True
