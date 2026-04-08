@@ -43,14 +43,45 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. AUTO-START COLLECTOR ---
-@st.cache_resource
-def start_background_collector():
-    from collector import collector
-    collector.start()
-    return collector
+# --- 2. COLLECTOR LIFECYCLE (CLOUD-SAFE) ---
+def _init_app_state():
+    if "collector_started" not in st.session_state:
+        st.session_state.collector_started = False
+    if "collector_error" not in st.session_state:
+        st.session_state.collector_error = ""
 
-_ = start_background_collector()
+
+def start_background_collector():
+    """Start collector only after Streamlit session initializes."""
+    try:
+        from collector import collector
+
+        if not collector.is_running:
+            collector.start()
+
+        st.session_state.collector_started = True
+        st.session_state.collector_error = ""
+        return True
+    except Exception as exc:
+        st.session_state.collector_started = False
+        st.session_state.collector_error = str(exc)
+        return False
+
+
+def stop_background_collector():
+    """Gracefully stop collector thread for this process."""
+    try:
+        from collector import collector
+
+        collector.is_running = False
+        st.session_state.collector_started = False
+        return True
+    except Exception as exc:
+        st.session_state.collector_error = str(exc)
+        return False
+
+
+_init_app_state()
 
 # --- MAP COORDINATES ---
 SRI_LANKA_CITIES = {
@@ -159,11 +190,37 @@ def extract_trending_keywords(df, limit=10):
 # --- SIDEBAR CONTROLS ---
 st.sidebar.title("🔧 Intelligence Hub")
 
+# COLLECTOR CONTROLS
+st.sidebar.header("🛰️ Collector")
+if st.session_state.collector_started:
+    st.sidebar.success("Collector is running")
+else:
+    st.sidebar.warning("Collector is stopped")
+
+c1, c2 = st.sidebar.columns(2)
+with c1:
+    if st.button("Start Collector", key="start_collector_btn", use_container_width=True):
+        if start_background_collector():
+            st.toast("Collector started")
+            st.rerun()
+with c2:
+    if st.button("Stop Collector", key="stop_collector_btn", use_container_width=True):
+        if stop_background_collector():
+            st.toast("Collector stopped")
+            st.rerun()
+
+if st.session_state.collector_error:
+    st.sidebar.error(f"Collector error: {st.session_state.collector_error}")
+
+st.sidebar.markdown("---")
+
 # LIVE STATUS
-st.sidebar.markdown("""
+live_label = "SYSTEM LIVE" if st.session_state.collector_started else "SYSTEM STANDBY"
+live_color = "#00FF00" if st.session_state.collector_started else "#FFA726"
+st.sidebar.markdown(f"""
 <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 20px;'>
     <div class='live-indicator'></div>
-    <span style='font-size: 14px; font-weight: bold; color: #00FF00'>SYSTEM LIVE</span>
+    <span style='font-size: 14px; font-weight: bold; color: {live_color}'>{live_label}</span>
 </div>
 """, unsafe_allow_html=True)
 
