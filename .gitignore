@@ -1,4 +1,35 @@
-env.example
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Virtual environments
 .venv/
+venv/
+
+# Editor settings
 .vscode/
+
+# Python caches and build artifacts
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+app/logs/
+
+# Runtime SQLite artifacts
+*.db
+*.db-shm
+*.db-wal
+
+# OS files
+.DS_Store
+Thumbs.db
